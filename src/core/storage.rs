@@ -110,18 +110,49 @@ impl Storage {
         Ok(new_investment)
     }
 
+    /// Resolve a user-supplied ID (full UUID or short prefix) to the full UUID
+    /// stored on disk.  Returns `Ok(None)` if no investment matches, and an
+    /// error if the prefix is ambiguous (matches more than one investment).
+    pub fn resolve_id<'a>(
+        &self,
+        id: &'a str,
+        investments: &[Investment],
+    ) -> Result<Option<String>> {
+        // 1. Exact match — always preferred.
+        if let Some(inv) = investments.iter().find(|inv| inv.id == id) {
+            return Ok(Some(inv.id.clone()));
+        }
+
+        // 2. Prefix match — useful when the user copies the 8-char short ID
+        //    shown by `list`.
+        let matches: Vec<&Investment> = investments
+            .iter()
+            .filter(|inv| inv.id.starts_with(id))
+            .collect();
+
+        match matches.len() {
+            0 => Ok(None),
+            1 => Ok(Some(matches[0].id.clone())),
+            _ => Err(anyhow::anyhow!(
+                "Ambiguous ID prefix '{}' matches {} investments. Please provide more characters.",
+                id,
+                matches.len()
+            )),
+        }
+    }
+
     pub fn get_investment(&self, id: &str) -> Result<Option<Investment>> {
         let investments = self.load_investments()?;
-        Ok(investments.into_iter().find(|inv| inv.id == id))
+        let resolved = self.resolve_id(id, &investments)?;
+        Ok(resolved.and_then(|full_id| investments.into_iter().find(|inv| inv.id == full_id)))
     }
 
     pub fn update_investment(&self, updated_investment: &Investment) -> Result<Option<Investment>> {
         let mut investments = self.load_investments()?;
 
-        if let Some(pos) = investments
-            .iter()
-            .position(|inv| inv.id == updated_investment.id)
-        {
+        if let Some(pos) = investments.iter().position(|inv| {
+            inv.id == updated_investment.id || inv.id.starts_with(&updated_investment.id)
+        }) {
             let old_investment = investments[pos].clone();
             investments[pos] = updated_investment.clone();
             self.save_investments(&investments)?;
@@ -133,8 +164,13 @@ impl Storage {
 
     pub fn delete_investment(&self, id: &str) -> Result<Option<Investment>> {
         let mut investments = self.load_investments()?;
+        let resolved = self.resolve_id(id, &investments)?;
+        let full_id = match resolved {
+            Some(ref fid) => fid.clone(),
+            None => return Ok(None),
+        };
 
-        if let Some(pos) = investments.iter().position(|inv| inv.id == id) {
+        if let Some(pos) = investments.iter().position(|inv| inv.id == full_id) {
             let deleted_investment = investments.remove(pos);
             self.save_investments(&investments)?;
             Ok(Some(deleted_investment))
@@ -153,7 +189,12 @@ impl Storage {
         F: FnOnce(&mut Investment) -> Result<()>,
     {
         let mut investments = self.load_investments()?;
-        if let Some(inv) = investments.iter_mut().find(|i| i.id == id) {
+        let resolved = self.resolve_id(id, &investments)?;
+        let full_id = match resolved {
+            Some(fid) => fid,
+            None => return Ok(None),
+        };
+        if let Some(inv) = investments.iter_mut().find(|i| i.id == full_id) {
             f(inv)?;
             let updated = inv.clone();
             self.save_investments(&investments)?;

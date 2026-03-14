@@ -55,9 +55,9 @@ pub fn run() -> Result<()> {
         ]);
 
     for inv in &investments {
-        // Shorten UUID to first 8 chars + ellipsis
+        // Shorten UUID to first 8 chars — copy-pasteable as a prefix ID
         let short_id = if inv.id.len() > 8 {
-            format!("{}…", &inv.id[..8])
+            inv.id[..8].to_string()
         } else {
             inv.id.clone()
         };

@@ -312,7 +312,10 @@ fn test_list_table_format() -> Result<(), Box<dyn std::error::Error>> {
         .stdout(predicate::str::contains("Alpha Corp"))
         .stdout(predicate::str::contains("Beta Fund"))
         .stdout(predicate::str::contains("1000.00"))
-        .stdout(predicate::str::contains("3000.00"));
+        .stdout(predicate::str::contains("3000.00"))
+        // Short IDs must be plain 8-char hex — no trailing ellipsis — so the
+        // user can copy-paste them directly into any command.
+        .stdout(predicate::str::contains("…").not());
 
     Ok(())
 }
@@ -1154,6 +1157,111 @@ fn test_delete_confirmed_by_user() -> Result<(), Box<dyn std::error::Error>> {
             predicate::str::contains("No investments found")
                 .or(predicate::str::contains("Delete Me Yes").not()),
         );
+
+    Ok(())
+}
+
+// ── Short-prefix ID resolution ────────────────────────────────────────────────
+
+/// `view` must work when the user supplies only the first 8 characters of the
+/// UUID — exactly what `list` displays in its ID column.
+#[test]
+fn test_view_with_short_prefix_id() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    // Add an investment and capture its full UUID from the output.
+    let add_output = Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "Prefix View Co", "2500.00", "2024-06-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+
+    let output_str = String::from_utf8_lossy(&add_output.stdout);
+    let full_id = extract_id_from_output(&output_str);
+    assert!(
+        full_id.len() >= 8,
+        "Expected a UUID of at least 8 chars, got: '{}'",
+        full_id
+    );
+
+    // Use only the first 8 characters — the short ID shown by `list`.
+    let short_id = &full_id[..8];
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["view", short_id])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Investment Details:"))
+        .stdout(predicate::str::contains("Prefix View Co"));
+
+    Ok(())
+}
+
+/// `update` must work when the user supplies only the first 8 characters of
+/// the UUID.
+#[test]
+fn test_update_with_short_prefix_id() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    let add_output = Command::cargo_bin("investment_tracker")?
+        .args(["add", "etf", "Prefix Update ETF", "1000.00", "2024-06-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+
+    let output_str = String::from_utf8_lossy(&add_output.stdout);
+    let full_id = extract_id_from_output(&output_str);
+    let short_id = &full_id[..8];
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["update", short_id, "--notes", "Updated via short ID"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Updated investment:"));
+
+    // Verify the note was persisted by viewing the investment with its full ID.
+    Command::cargo_bin("investment_tracker")?
+        .args(["view", short_id])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Updated via short ID"));
+
+    Ok(())
+}
+
+/// `delete` must work when the user supplies only the first 8 characters of
+/// the UUID.
+#[test]
+fn test_delete_with_short_prefix_id() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    let add_output = Command::cargo_bin("investment_tracker")?
+        .args(["add", "bond", "Prefix Delete Bond", "800.00", "2024-06-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+
+    let output_str = String::from_utf8_lossy(&add_output.stdout);
+    let full_id = extract_id_from_output(&output_str);
+    let short_id = &full_id[..8];
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["delete", short_id, "--yes"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Deleted investment:"));
+
+    // The investment must be gone — `view` should report not found.
+    Command::cargo_bin("investment_tracker")?
+        .args(["view", short_id])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("not found"));
 
     Ok(())
 }
