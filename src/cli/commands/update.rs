@@ -8,6 +8,7 @@ pub fn run(
     current_value: Option<f64>,
     date: Option<String>,
     notes: Option<String>,
+    units: Option<f64>,
 ) -> Result<()> {
     let storage = Storage::open();
     match storage.get_investment(&id)? {
@@ -29,6 +30,11 @@ pub fn run(
                 inv.notes = Some(n);
                 updated = true;
             }
+            if let Some(u) = units {
+                inv.units = Some(u);
+                inv.updated_at = crate::utils::display::now_timestamp();
+                updated = true;
+            }
             if updated {
                 let pb = spinner("Saving changes…");
                 storage.update_investment(&inv)?;
@@ -36,6 +42,9 @@ pub fn run(
                 println!("✓ Updated investment: {}", inv.id);
                 if let Some(ref n) = inv.notes {
                     println!("  Notes: {}", n);
+                }
+                if let Some(u) = inv.units {
+                    println!("  Units: {}", u);
                 }
             } else {
                 println!("No changes made to investment: {}", inv.id);

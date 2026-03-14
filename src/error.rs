@@ -14,6 +14,8 @@ pub enum InvestmentError {
     StorageError(String),
     #[error("Investment not found: {0}")]
     NotFound(String),
+    #[error("Insufficient units: {0}")]
+    InsufficientUnits(String),
 }
 
 // Use anyhow::Result as our standard Result type

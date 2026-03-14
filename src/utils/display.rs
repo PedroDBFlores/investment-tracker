@@ -41,6 +41,34 @@ pub fn fmt_return(symbol: &str, roi: f64, pct: f64) -> String {
     )
 }
 
+/// Generates an ASCII sparkline from a slice of price values.
+/// Uses 8 Unicode block characters to represent relative height.
+/// Returns an empty string if fewer than 2 prices are provided.
+pub fn sparkline(prices: &[f64]) -> String {
+    const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+    if prices.len() < 2 {
+        return String::new();
+    }
+
+    let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+    prices
+        .iter()
+        .map(|&p| {
+            if (max - min).abs() < f64::EPSILON {
+                // All prices are the same — use the middle block
+                BLOCKS[3]
+            } else {
+                let normalized = (p - min) / (max - min); // 0.0 ..= 1.0
+                let idx = (normalized * 7.0).round() as usize;
+                BLOCKS[idx.min(7)]
+            }
+        })
+        .collect()
+}
+
 /// Creates a spinner with a consistent style and the given message.
 /// Call `.finish_and_clear()` or `.finish_with_message(...)` when done.
 pub fn spinner(msg: &str) -> ProgressBar {

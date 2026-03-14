@@ -1,6 +1,6 @@
 use crate::core::Storage;
 use crate::error::{InvestmentError, Result};
-use crate::utils::display::{colors_enabled, fmt_amount, load_currency_symbol};
+use crate::utils::display::{colors_enabled, fmt_amount, load_currency_symbol, sparkline};
 use chrono::Local;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
@@ -89,6 +89,20 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
                 "N/A".to_string()
             };
             println!("  TWR:           {}", twr_display);
+
+            // ── Sparkline ──────────────────────────────────────────────────────
+            {
+                let all_sorted: Vec<_> = {
+                    let mut entries: Vec<_> = inv.price_history.iter().collect();
+                    entries.sort_by(|a, b| a.date.cmp(&b.date));
+                    entries
+                };
+                if all_sorted.len() >= 2 {
+                    let prices: Vec<f64> = all_sorted.iter().map(|e| e.price).collect();
+                    let spark = sparkline(&prices);
+                    println!("  Price Trend:   {}  ({} entries)", spark, all_sorted.len());
+                }
+            }
 
             // ── Price history table ────────────────────────────────────────────
             if inv.price_history.is_empty() {

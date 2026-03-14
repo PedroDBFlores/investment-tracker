@@ -1,4 +1,4 @@
-use crate::core::models::{DividendEntry, PriceEntry};
+use crate::core::models::{DividendEntry, PriceEntry, SaleEntry};
 use crate::core::{Investment, InvestmentType, Storage};
 use crate::error::Result;
 use crate::utils::display::spinner;
@@ -31,6 +31,8 @@ struct InvestmentRow {
     created_at: String,
     #[serde(default)]
     updated_at: String,
+    #[serde(default)]
+    units: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,6 +42,8 @@ struct PriceHistoryRow {
     price: f64,
     #[serde(default)]
     notes: String,
+    #[serde(default)]
+    unit_price: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +51,18 @@ struct DividendRow {
     investment_id: String,
     date: String,
     amount: f64,
+    #[serde(default)]
+    notes: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SaleRow {
+    investment_id: String,
+    date: String,
+    units_sold: f64,
+    sale_price_per_unit: f64,
+    total_proceeds: f64,
+    realized_gain: f64,
     #[serde(default)]
     notes: String,
 }
@@ -98,6 +114,7 @@ pub fn run(path: String) -> Result<()> {
                     } else {
                         Some(row.dividend_frequency)
                     },
+                    row.units,
                 )?;
 
                 // Restore original timestamps if the CSV had them.
@@ -125,9 +142,9 @@ pub fn run(path: String) -> Result<()> {
         }
     };
 
-    // ── Sidecar CSV files for price history and dividends (#2) ────────────────
+    // ── Sidecar CSV files for price history, dividends, and sales ─────────────
     // When the main file is a CSV, look for companion files next to it:
-    //   <stem>_price_history.csv  and  <stem>_dividends.csv
+    //   <stem>_price_history.csv,  <stem>_dividends.csv,  <stem>_sales.csv
     // These are produced by the CSV exporter and restore the sub-records that
     // cannot be represented in the flat main CSV.
     if ext == "csv" {
@@ -140,6 +157,7 @@ pub fn run(path: String) -> Result<()> {
 
         let mut price_map: HashMap<String, Vec<PriceEntry>> = HashMap::new();
         let mut dividend_map: HashMap<String, Vec<DividendEntry>> = HashMap::new();
+        let mut sales_map: HashMap<String, Vec<SaleEntry>> = HashMap::new();
 
         let price_path = parent.join(format!("{}_price_history.csv", stem));
         if price_path.exists() {
@@ -158,6 +176,7 @@ pub fn run(path: String) -> Result<()> {
                     } else {
                         Some(row.notes)
                     },
+                    unit_price: row.unit_price,
                 };
                 price_map.entry(row.investment_id).or_default().push(entry);
             }
@@ -188,6 +207,28 @@ pub fn run(path: String) -> Result<()> {
             }
         }
 
+        let sales_path = parent.join(format!("{}_sales.csv", stem));
+        if sales_path.exists() {
+            pb.set_message(format!("Reading sales from {}…", sales_path.display()));
+            let mut rdr = csv::Reader::from_path(&sales_path)?;
+            for result in rdr.deserialize() {
+                let row: SaleRow = result?;
+                let entry = SaleEntry {
+                    date: row.date,
+                    units_sold: row.units_sold,
+                    sale_price_per_unit: row.sale_price_per_unit,
+                    total_proceeds: row.total_proceeds,
+                    realized_gain: row.realized_gain,
+                    notes: if row.notes.is_empty() {
+                        None
+                    } else {
+                        Some(row.notes)
+                    },
+                };
+                sales_map.entry(row.investment_id).or_default().push(entry);
+            }
+        }
+
         // Attach the sub-records to each investment.
         for inv in &mut investments {
             if let Some(entries) = price_map.remove(&inv.id) {
@@ -197,6 +238,10 @@ pub fn run(path: String) -> Result<()> {
             if let Some(entries) = dividend_map.remove(&inv.id) {
                 inv.dividends = entries;
                 inv.dividends.sort_by(|a, b| a.date.cmp(&b.date));
+            }
+            if let Some(entries) = sales_map.remove(&inv.id) {
+                inv.sales = entries;
+                inv.sales.sort_by(|a, b| a.date.cmp(&b.date));
             }
         }
     }

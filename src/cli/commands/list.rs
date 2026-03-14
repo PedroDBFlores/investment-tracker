@@ -1,6 +1,8 @@
 use crate::core::Storage;
 use crate::error::Result;
-use crate::utils::display::{colors_enabled, fmt_amount, fmt_return, load_currency_symbol};
+use crate::utils::display::{
+    colors_enabled, fmt_amount, fmt_return, load_currency_symbol, sparkline,
+};
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 
@@ -39,6 +41,12 @@ pub fn run() -> Result<()> {
                 .add_attribute(Attribute::Bold)
                 .fg(header_color),
             Cell::new("Return")
+                .add_attribute(Attribute::Bold)
+                .fg(header_color),
+            Cell::new("Units")
+                .add_attribute(Attribute::Bold)
+                .fg(header_color),
+            Cell::new("Trend")
                 .add_attribute(Attribute::Bold)
                 .fg(header_color),
             Cell::new("Date")
@@ -88,6 +96,34 @@ pub fn run() -> Result<()> {
             }
         };
 
+        let units_cell = match inv.units {
+            Some(u) => Cell::new(format!("{}", u)).fg(Color::White),
+            None => {
+                let color = if colors {
+                    Color::DarkGrey
+                } else {
+                    Color::White
+                };
+                Cell::new("—").fg(color)
+            }
+        };
+
+        let trend_cell = {
+            let sorted = inv.sorted_price_history();
+            if sorted.len() >= 2 {
+                let prices: Vec<f64> = sorted.iter().map(|e| e.price).collect();
+                let spark = sparkline(&prices);
+                Cell::new(spark).fg(Color::White)
+            } else {
+                let color = if colors {
+                    Color::DarkGrey
+                } else {
+                    Color::White
+                };
+                Cell::new("—").fg(color)
+            }
+        };
+
         let id_color = if colors {
             Color::DarkGrey
         } else {
@@ -101,6 +137,8 @@ pub fn run() -> Result<()> {
             Cell::new(fmt_amount(&sym, inv.amount)).fg(Color::White),
             current_value_cell,
             return_cell,
+            units_cell,
+            trend_cell,
             Cell::new(&inv.date).fg(Color::White),
         ]);
     }

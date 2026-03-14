@@ -11,6 +11,7 @@ pub fn run(
     notes: Option<String>,
     dividend_yield: Option<f64>,
     dividend_frequency: Option<String>,
+    units: Option<f64>,
 ) -> Result<()> {
     let inv_type: InvestmentType = investment_type.parse().unwrap();
     let date = date.unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
@@ -26,6 +27,7 @@ pub fn run(
         notes,
         dividend_yield,
         dividend_frequency,
+        units,
     )?;
 
     let pb = spinner("Saving investment…");
@@ -43,6 +45,12 @@ pub fn run(
     }
     if let Some(n) = &saved.notes {
         println!("  Notes: {}", n);
+    }
+    if let Some(u) = saved.units {
+        println!("  Units: {}", u);
+        if let Some(cbpu) = saved.cost_basis_per_unit() {
+            println!("  Cost Basis/Unit: {}", fmt_amount(&cur, cbpu));
+        }
     }
     Ok(())
 }

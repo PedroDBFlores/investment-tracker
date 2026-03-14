@@ -30,6 +30,19 @@ pub struct PriceEntry {
     pub date: String, // YYYY-MM-DD
     pub price: f64,   // value per unit / total portfolio value at that date
     pub notes: Option<String>,
+    #[serde(default)]
+    pub unit_price: Option<f64>, // per-unit price at this point in time (optional)
+}
+
+/// Records the sale of units/shares from an investment position.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SaleEntry {
+    pub date: String,             // YYYY-MM-DD
+    pub units_sold: f64,          // how many units/shares sold
+    pub sale_price_per_unit: f64, // price per unit at sale
+    pub total_proceeds: f64,      // units_sold * sale_price_per_unit
+    pub realized_gain: f64,       // total_proceeds - (units_sold * cost_basis_per_unit)
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -93,6 +106,10 @@ pub struct Investment {
     pub price_history: Vec<PriceEntry>,
     #[serde(default)]
     pub dividends: Vec<DividendEntry>,
+    #[serde(default)]
+    pub units: Option<f64>,
+    #[serde(default)]
+    pub sales: Vec<SaleEntry>,
 }
 
 impl Investment {
@@ -107,6 +124,7 @@ impl Investment {
         notes: Option<String>,
         dividend_yield: Option<f64>,
         dividend_frequency: Option<String>,
+        units: Option<f64>,
     ) -> Result<Self> {
         if amount <= 0.0 {
             return Err(InvestmentError::InvalidAmount(
@@ -134,7 +152,37 @@ impl Investment {
             dividend_frequency,
             price_history: Vec::new(),
             dividends: Vec::new(),
+            units,
+            sales: Vec::new(),
         })
+    }
+
+    /// Cost basis per unit: amount / remaining_units.
+    /// This stays consistent after partial sales because both `amount` and
+    /// `remaining_units` are reduced proportionally by `sell()`.
+    /// Returns None if units is not set or no units remain.
+    pub fn cost_basis_per_unit(&self) -> Option<f64> {
+        self.remaining_units().and_then(|rem| {
+            if rem > 0.0 {
+                Some(self.amount / rem)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Remaining units after accounting for all recorded sales.
+    /// Returns None if units is not set on this investment.
+    pub fn remaining_units(&self) -> Option<f64> {
+        self.units.map(|u| {
+            let sold: f64 = self.sales.iter().map(|s| s.units_sold).sum();
+            u - sold
+        })
+    }
+
+    /// Sum of realized gains across all sale entries.
+    pub fn total_realized_gain(&self) -> f64 {
+        self.sales.iter().map(|s| s.realized_gain).sum()
     }
 
     pub fn update_amount(&mut self, new_amount: f64) -> Result<()> {
@@ -175,6 +223,7 @@ impl Investment {
         date: String,
         price: f64,
         notes: Option<String>,
+        unit_price: Option<f64>,
     ) -> Result<()> {
         if price <= 0.0 {
             return Err(
@@ -184,7 +233,12 @@ impl Investment {
 
         validate_date(&date)?;
 
-        self.price_history.push(PriceEntry { date, price, notes });
+        self.price_history.push(PriceEntry {
+            date,
+            price,
+            notes,
+            unit_price,
+        });
         self.price_history.sort_by(|a, b| a.date.cmp(&b.date));
 
         // Update current_value to the latest price (last entry after sort)
@@ -215,6 +269,64 @@ impl Investment {
         self.dividends.sort_by(|a, b| a.date.cmp(&b.date));
         self.updated_at = crate::utils::display::now_timestamp();
         Ok(())
+    }
+
+    /// Record the sale of units from this investment.
+    /// Validates that units are set and that enough units remain.
+    /// Updates `self.units` to remaining units and adjusts `self.amount` and
+    /// `self.current_value` proportionally.
+    pub fn sell(
+        &mut self,
+        date: String,
+        units_sold: f64,
+        sale_price_per_unit: f64,
+        notes: Option<String>,
+    ) -> Result<SaleEntry> {
+        let _original_units = self.units.ok_or_else(|| {
+            InvestmentError::InsufficientUnits(
+                "Cannot record a sale: this investment has no units tracked".to_string(),
+            )
+        })?;
+
+        let remaining = self.remaining_units().unwrap_or(0.0);
+        if units_sold > remaining {
+            return Err(InvestmentError::InsufficientUnits(format!(
+                "Cannot sell {:.4} units — only {:.4} units remaining",
+                units_sold, remaining
+            ))
+            .into());
+        }
+
+        validate_date(&date)?;
+
+        let cost_basis = self.cost_basis_per_unit().unwrap_or(0.0);
+        let total_proceeds = units_sold * sale_price_per_unit;
+        let realized_gain = total_proceeds - (units_sold * cost_basis);
+
+        let entry = SaleEntry {
+            date,
+            units_sold,
+            sale_price_per_unit,
+            total_proceeds,
+            realized_gain,
+            notes,
+        };
+
+        // Reduce amount by the cost of the units sold
+        self.amount -= units_sold * cost_basis;
+
+        // Update current_value proportionally if it was set
+        if let Some(cv) = self.current_value {
+            let new_remaining = remaining - units_sold;
+            if remaining > 0.0 {
+                self.current_value = Some(cv * (new_remaining / remaining));
+            }
+        }
+
+        self.sales.push(entry.clone());
+        self.updated_at = crate::utils::display::now_timestamp();
+
+        Ok(entry)
     }
 
     /// Total dividends received.
@@ -284,10 +396,12 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap()
     }
 
+    #[allow(dead_code)]
     fn make_investment(amount: f64, current_value: Option<f64>) -> Investment {
         Investment::new(
             "test-id".to_string(),
@@ -300,6 +414,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap()
     }
@@ -307,7 +422,7 @@ mod tests {
     #[test]
     fn test_add_price_entry() {
         let mut inv = make_investment(1000.0, None);
-        inv.add_price_entry("2024-03-01".to_string(), 1100.0, None)
+        inv.add_price_entry("2024-03-01".to_string(), 1100.0, None, None)
             .unwrap();
         assert_eq!(inv.current_value, Some(1100.0));
         assert_eq!(inv.price_history.len(), 1);
@@ -316,6 +431,7 @@ mod tests {
             "2024-04-01".to_string(),
             1200.0,
             Some("Q1 update".to_string()),
+            None,
         )
         .unwrap();
         assert_eq!(inv.current_value, Some(1200.0));
@@ -326,7 +442,7 @@ mod tests {
     #[test]
     fn test_add_price_entry_invalid_price() {
         let mut inv = make_investment(1000.0, None);
-        let result = inv.add_price_entry("2024-03-01".to_string(), 0.0, None);
+        let result = inv.add_price_entry("2024-03-01".to_string(), 0.0, None, None);
         assert!(result.is_err());
         if let Err(e) = result {
             if let Some(InvestmentError::InvalidAmount(msg)) = e.downcast_ref() {
@@ -341,9 +457,9 @@ mod tests {
     fn test_time_weighted_return_with_history() {
         let mut inv = make_investment(1000.0, None);
         // earliest price 800, latest price 1200 → TWR = (1200-800)/800*100 = 50%
-        inv.add_price_entry("2024-02-01".to_string(), 800.0, None)
+        inv.add_price_entry("2024-02-01".to_string(), 800.0, None, None)
             .unwrap();
-        inv.add_price_entry("2024-03-01".to_string(), 1200.0, None)
+        inv.add_price_entry("2024-03-01".to_string(), 1200.0, None, None)
             .unwrap();
         let twr = inv.time_weighted_return().unwrap();
         assert!((twr - 50.0).abs() < 0.001, "Expected 50.0% but got {}", twr);
@@ -359,7 +475,7 @@ mod tests {
 
         // Also verify: single history entry falls back too
         let mut inv2 = make_investment(1000.0, Some(1500.0));
-        inv2.add_price_entry("2024-03-01".to_string(), 1500.0, None)
+        inv2.add_price_entry("2024-03-01".to_string(), 1500.0, None, None)
             .unwrap();
         assert_eq!(inv2.price_history.len(), 1);
         let twr2 = inv2.time_weighted_return().unwrap();
@@ -384,6 +500,7 @@ mod tests {
             Some("Test investment".to_string()),
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -406,6 +523,7 @@ mod tests {
             None,
             0.0,
             "2024-01-15".to_string(),
+            None,
             None,
             None,
             None,
@@ -460,6 +578,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         assert!(result.is_err());
@@ -481,6 +600,7 @@ mod tests {
             None,
             1000.0,
             "2024-01-15".to_string(),
+            None,
             None,
             None,
             None,
@@ -512,6 +632,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -529,6 +650,7 @@ mod tests {
             1000.0,
             "2024-01-15".to_string(),
             Some(1500.0),
+            None,
             None,
             None,
             None,
@@ -552,6 +674,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -570,6 +693,7 @@ mod tests {
             "2024-02-20".to_string(),
             Some(2500.0),
             Some("Test ETF investment".to_string()),
+            None,
             None,
             None,
         )
@@ -654,5 +778,138 @@ mod tests {
             "custom".parse::<InvestmentType>().unwrap(),
             InvestmentType::Other("custom".to_string())
         );
+    }
+
+    // ── New tests for units / sales features ──────────────────────────────────
+
+    #[allow(dead_code)]
+    fn make_investment_with_units(amount: f64, units: f64) -> Investment {
+        Investment::new(
+            "test-id".to_string(),
+            InvestmentType::Stock,
+            "Test Company".to_string(),
+            Some("TEST".to_string()),
+            amount,
+            "2024-01-15".to_string(),
+            Some(amount),
+            None,
+            None,
+            None,
+            Some(units),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_cost_basis_per_unit() {
+        let inv = make_investment_with_units(1000.0, 10.0);
+        let cbpu = inv.cost_basis_per_unit().unwrap();
+        assert!(
+            (cbpu - 100.0).abs() < 0.001,
+            "Expected 100.0 but got {}",
+            cbpu
+        );
+    }
+
+    #[test]
+    fn test_cost_basis_per_unit_none_when_no_units() {
+        let inv = make_investment(1000.0, Some(1200.0));
+        assert!(inv.cost_basis_per_unit().is_none());
+    }
+
+    #[test]
+    fn test_remaining_units_no_sales() {
+        let inv = make_investment_with_units(1000.0, 10.0);
+        let remaining = inv.remaining_units().unwrap();
+        assert!((remaining - 10.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_remaining_units_after_sale() {
+        let mut inv = make_investment_with_units(1000.0, 10.0);
+        inv.sell("2024-06-01".to_string(), 3.0, 120.0, None)
+            .unwrap();
+        let remaining = inv.remaining_units().unwrap();
+        assert!(
+            (remaining - 7.0).abs() < 0.001,
+            "Expected 7.0 but got {}",
+            remaining
+        );
+    }
+
+    #[test]
+    fn test_remaining_units_none_when_no_units() {
+        let inv = make_investment(1000.0, Some(1200.0));
+        assert!(inv.remaining_units().is_none());
+    }
+
+    #[test]
+    fn test_total_realized_gain() {
+        let mut inv = make_investment_with_units(1000.0, 10.0);
+        // cost basis = 100/unit; sell 3 at 120 → gain = 3*(120-100) = 60
+        inv.sell("2024-06-01".to_string(), 3.0, 120.0, None)
+            .unwrap();
+        // sell 2 at 80 → gain = 2*(80-100) = -40
+        inv.sell("2024-07-01".to_string(), 2.0, 80.0, None).unwrap();
+        let total = inv.total_realized_gain();
+        assert!(
+            (total - 20.0).abs() < 0.001,
+            "Expected 20.0 but got {}",
+            total
+        );
+    }
+
+    #[test]
+    fn test_sell_success() {
+        let mut inv = make_investment_with_units(1000.0, 10.0);
+        // cost basis = $100/unit
+        let entry = inv
+            .sell(
+                "2024-06-01".to_string(),
+                4.0,
+                150.0,
+                Some("partial exit".to_string()),
+            )
+            .unwrap();
+
+        assert!((entry.units_sold - 4.0).abs() < 0.001);
+        assert!((entry.sale_price_per_unit - 150.0).abs() < 0.001);
+        assert!((entry.total_proceeds - 600.0).abs() < 0.001);
+        // realized gain = 600 - (4 * 100) = 200
+        assert!((entry.realized_gain - 200.0).abs() < 0.001);
+        assert_eq!(entry.notes, Some("partial exit".to_string()));
+
+        // After sale: 6 units remain, amount reduced by 4*100=400 → 600
+        let remaining = inv.remaining_units().unwrap();
+        assert!((remaining - 6.0).abs() < 0.001);
+        assert!((inv.amount - 600.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_sell_insufficient_units() {
+        let mut inv = make_investment_with_units(1000.0, 10.0);
+        let result = inv.sell("2024-06-01".to_string(), 15.0, 100.0, None);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            if let Some(InvestmentError::InsufficientUnits(_)) = e.downcast_ref() {
+                // expected
+            } else {
+                panic!("Expected InsufficientUnits error, got: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_sell_no_units_set() {
+        let mut inv = make_investment(1000.0, Some(1200.0));
+        let result = inv.sell("2024-06-01".to_string(), 1.0, 100.0, None);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            if let Some(InvestmentError::InsufficientUnits(_)) = e.downcast_ref() {
+                // expected
+            } else {
+                panic!("Expected InsufficientUnits error");
+            }
+        }
     }
 }

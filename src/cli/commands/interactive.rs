@@ -13,6 +13,7 @@ enum MenuAction {
     UpdateInvestment,
     RecordPrice,
     RecordDividend,
+    SellUnits,
     DeleteInvestment,
     ViewPortfolio,
     Performance,
@@ -31,6 +32,7 @@ impl MenuAction {
             MenuAction::UpdateInvestment => "✏️   Update an investment",
             MenuAction::RecordPrice => "💹  Record a price entry",
             MenuAction::RecordDividend => "💰  Record a dividend payment",
+            MenuAction::SellUnits => "💸  Sell units / record a sale",
             MenuAction::DeleteInvestment => "🗑️   Delete an investment",
             MenuAction::ViewPortfolio => "📊  Portfolio summary",
             MenuAction::Performance => "📈  Performance report",
@@ -49,6 +51,7 @@ impl MenuAction {
             MenuAction::UpdateInvestment,
             MenuAction::RecordPrice,
             MenuAction::RecordDividend,
+            MenuAction::SellUnits,
             MenuAction::DeleteInvestment,
             MenuAction::ViewPortfolio,
             MenuAction::Performance,
@@ -99,6 +102,7 @@ pub fn run() -> Result<()> {
             MenuAction::UpdateInvestment => interactive_update(&theme)?,
             MenuAction::RecordPrice => interactive_add_price(&theme)?,
             MenuAction::RecordDividend => interactive_add_dividend(&theme)?,
+            MenuAction::SellUnits => interactive_sell(&theme)?,
             MenuAction::DeleteInvestment => interactive_delete(&theme)?,
             MenuAction::ViewPortfolio => crate::cli::commands::portfolio::run()?,
             MenuAction::Performance => interactive_performance(&theme)?,
@@ -295,6 +299,17 @@ fn interactive_add(theme: &ColorfulTheme) -> Result<()> {
         None
     };
 
+    // Units (optional)
+    let units_str: String = Input::with_theme(theme)
+        .with_prompt("Number of units/shares purchased (leave blank to skip)")
+        .allow_empty(true)
+        .interact_text()?;
+    let units = if units_str.trim().is_empty() {
+        None
+    } else {
+        units_str.trim().parse::<f64>().ok()
+    };
+
     // Confirm
     println!();
     println!("  Review:");
@@ -308,6 +323,14 @@ fn interactive_add(theme: &ColorfulTheme) -> Result<()> {
         fmt_amount(&load_currency_symbol(), amount)
     );
     println!("    Date:   {}", date);
+    if let Some(u) = units {
+        println!("    Units:  {}", u);
+        let cbpu = amount / u;
+        println!(
+            "    Cost Basis/Unit: {}",
+            fmt_amount(&load_currency_symbol(), cbpu)
+        );
+    }
     if let Some(ref n) = notes {
         println!("    Notes:  {}", n);
     }
@@ -339,6 +362,7 @@ fn interactive_add(theme: &ColorfulTheme) -> Result<()> {
         notes,
         dividend_yield,
         dividend_frequency,
+        units,
     )?;
 
     let pb = spinner("Saving investment…");
@@ -463,6 +487,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("valid investment");
         inv.current_value = current_value;
@@ -565,6 +590,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("valid investment");
 
@@ -588,6 +614,7 @@ mod tests {
             amount,
             "2024-01-15".to_string(),
             Some(amount),
+            None,
             None,
             None,
             None,
@@ -617,6 +644,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("valid investment");
 
@@ -643,6 +671,7 @@ mod tests {
             amount,
             "2024-01-01".to_string(),
             Some(amount),
+            None,
             None,
             None,
             None,
@@ -864,19 +893,34 @@ fn interactive_add_price(theme: &ColorfulTheme) -> Result<()> {
         Some(notes_str.trim().to_string())
     };
 
+    // Unit price (optional)
+    let unit_price_str: String = Input::with_theme(theme)
+        .with_prompt("Price per unit/share (leave blank to skip)")
+        .allow_empty(true)
+        .interact_text()?;
+    let unit_price = if unit_price_str.trim().is_empty() {
+        None
+    } else {
+        unit_price_str.trim().parse::<f64>().ok()
+    };
+
     let pb = spinner("Saving price entry…");
     let storage = Storage::open();
     match storage.mutate_investment(&id, |inv| {
-        inv.add_price_entry(date.clone(), price, notes.clone())
+        inv.add_price_entry(date.clone(), price, notes.clone(), unit_price)
     })? {
         Some(inv) => {
             pb.finish_and_clear();
+            let cur = load_currency_symbol();
             println!(
                 "  ✓ Recorded price {} for {} on {}",
-                fmt_amount(&load_currency_symbol(), price),
+                fmt_amount(&cur, price),
                 inv.name,
                 date
             );
+            if let Some(up) = unit_price {
+                println!("    Unit Price: {}", fmt_amount(&cur, up));
+            }
             println!("    Price history: {} entries", inv.price_history.len());
             if let Some(twr) = inv.time_weighted_return() {
                 println!("    Time-weighted return: {:.2}%", twr);
@@ -885,6 +929,164 @@ fn interactive_add_price(theme: &ColorfulTheme) -> Result<()> {
         None => {
             pb.finish_and_clear();
             println!("  Investment not found.");
+        }
+    }
+
+    Ok(())
+}
+
+// ── Sell units ────────────────────────────────────────────────────────────────
+
+fn interactive_sell(theme: &ColorfulTheme) -> Result<()> {
+    println!("  💸  Sell Units / Record a Sale");
+    println!("  {}", "─".repeat(30));
+
+    let id = match pick_investment(theme, "Select investment to sell from")? {
+        Some(id) => id,
+        None => return Ok(()),
+    };
+
+    let pb_load = spinner("Loading investment…");
+    let storage = Storage::open();
+    let inv = match storage.get_investment(&id)? {
+        Some(i) => i,
+        None => {
+            pb_load.finish_and_clear();
+            println!("  Investment not found.");
+            return Ok(());
+        }
+    };
+    pb_load.finish_and_clear();
+
+    let cur = load_currency_symbol();
+
+    // Show current position
+    println!();
+    println!("  Investment: {} ({})", inv.name, inv.investment_type);
+    match inv.remaining_units() {
+        Some(rem) => println!("  Remaining units: {}", rem),
+        None => println!("  ⚠  This investment has no units tracked. Set units first via Update."),
+    }
+    if let Some(cbpu) = inv.cost_basis_per_unit() {
+        println!("  Cost basis/unit: {}", fmt_amount(&cur, cbpu));
+    }
+    println!();
+
+    // units_sold
+    let units_sold: f64 = loop {
+        let raw: String = Input::with_theme(theme)
+            .with_prompt("Units to sell")
+            .interact_text()?;
+        match raw.trim().parse::<f64>() {
+            Ok(v) if v > 0.0 => break v,
+            Ok(_) => println!("  ⚠  Units sold must be greater than zero."),
+            Err(_) => println!("  ⚠  Please enter a valid number."),
+        }
+    };
+
+    // price_per_unit
+    let price_per_unit: f64 = loop {
+        let raw: String = Input::with_theme(theme)
+            .with_prompt("Sale price per unit")
+            .interact_text()?;
+        match raw.trim().parse::<f64>() {
+            Ok(v) if v > 0.0 => break v,
+            Ok(_) => println!("  ⚠  Price must be greater than zero."),
+            Err(_) => println!("  ⚠  Please enter a valid number."),
+        }
+    };
+
+    // date
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let date: String = loop {
+        let raw: String = Input::with_theme(theme)
+            .with_prompt("Sale date (YYYY-MM-DD)")
+            .default(today.clone())
+            .interact_text()?;
+        let d = raw.trim().to_string();
+        match validate_date(&d) {
+            Ok(_) => break d,
+            Err(e) => println!("  ⚠  {}", e),
+        }
+    };
+
+    // notes
+    let notes_str: String = Input::with_theme(theme)
+        .with_prompt("Notes (leave blank to skip)")
+        .allow_empty(true)
+        .interact_text()?;
+    let notes = if notes_str.trim().is_empty() {
+        None
+    } else {
+        Some(notes_str.trim().to_string())
+    };
+
+    // Preview
+    let total_proceeds = units_sold * price_per_unit;
+    let cost_basis_preview = inv.cost_basis_per_unit().unwrap_or(0.0);
+    let realized_gain_preview = total_proceeds - (units_sold * cost_basis_preview);
+    let sign = if realized_gain_preview >= 0.0 {
+        "+"
+    } else {
+        ""
+    };
+
+    println!();
+    println!("  Preview:");
+    println!("    Units Sold:     {}", units_sold);
+    println!("    Price/Unit:     {}", fmt_amount(&cur, price_per_unit));
+    println!("    Total Proceeds: {}", fmt_amount(&cur, total_proceeds));
+    println!(
+        "    Realized Gain:  {}{}",
+        sign,
+        fmt_amount(&cur, realized_gain_preview)
+    );
+    println!();
+
+    if !Confirm::with_theme(theme)
+        .with_prompt("Record this sale?")
+        .default(true)
+        .interact()?
+    {
+        println!("  Cancelled.");
+        return Ok(());
+    }
+
+    let pb = spinner("Recording sale…");
+    let mut inv = match storage.get_investment(&id)? {
+        Some(i) => i,
+        None => {
+            pb.finish_and_clear();
+            println!("  Investment not found.");
+            return Ok(());
+        }
+    };
+
+    match inv.sell(date.clone(), units_sold, price_per_unit, notes) {
+        Ok(entry) => {
+            storage.update_investment(&inv)?;
+            pb.finish_and_clear();
+            let gain_str = if entry.realized_gain >= 0.0 {
+                format!("+{}", fmt_amount(&cur, entry.realized_gain))
+            } else {
+                format!("-{}", fmt_amount(&cur, entry.realized_gain.abs()))
+            };
+            println!("  ✓ Sale recorded for {} on {}", inv.name, date);
+            println!(
+                "    Proceeds: {}  |  Realized Gain: {}",
+                fmt_amount(&cur, entry.total_proceeds),
+                gain_str
+            );
+            if let Some(rem) = inv.remaining_units() {
+                println!("    Remaining units: {}", rem);
+            }
+            if let Some(cv) = inv.current_value {
+                println!("    Remaining value: {}", fmt_amount(&cur, cv));
+            }
+        }
+        Err(e) => {
+            pb.finish_and_clear();
+            println!("  ⚠  {}", e);
         }
     }
 

@@ -19,6 +19,7 @@ struct InvestmentRow<'a> {
     dividend_frequency: &'a str,
     created_at: &'a str,
     updated_at: &'a str,
+    units: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -27,6 +28,7 @@ struct PriceHistoryRow<'a> {
     date: &'a str,
     price: f64,
     notes: &'a str,
+    unit_price: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -34,6 +36,17 @@ struct DividendRow<'a> {
     investment_id: &'a str,
     date: &'a str,
     amount: f64,
+    notes: &'a str,
+}
+
+#[derive(Serialize)]
+struct SaleRow<'a> {
+    investment_id: &'a str,
+    date: &'a str,
+    units_sold: f64,
+    sale_price_per_unit: f64,
+    total_proceeds: f64,
+    realized_gain: f64,
     notes: &'a str,
 }
 
@@ -61,6 +74,7 @@ pub fn run(path: String, format: String) -> Result<()> {
                     dividend_frequency: inv.dividend_frequency.as_deref().unwrap_or(""),
                     created_at: &inv.created_at,
                     updated_at: &inv.updated_at,
+                    units: inv.units,
                 })?;
             }
             wtr.flush()?;
@@ -84,6 +98,7 @@ pub fn run(path: String, format: String) -> Result<()> {
                         date: &entry.date,
                         price: entry.price,
                         notes: entry.notes.as_deref().unwrap_or(""),
+                        unit_price: entry.unit_price,
                     })?;
                     price_count += 1;
                 }
@@ -107,6 +122,26 @@ pub fn run(path: String, format: String) -> Result<()> {
             }
             div_wtr.flush()?;
 
+            // ── Sales sidecar ─────────────────────────────────────────────────
+            let sales_path = parent.join(format!("{}_sales.csv", stem));
+            let mut sales_wtr = csv::Writer::from_path(&sales_path)?;
+            let mut sales_count = 0usize;
+            for inv in &investments {
+                for sale in &inv.sales {
+                    sales_wtr.serialize(SaleRow {
+                        investment_id: &inv.id,
+                        date: &sale.date,
+                        units_sold: sale.units_sold,
+                        sale_price_per_unit: sale.sale_price_per_unit,
+                        total_proceeds: sale.total_proceeds,
+                        realized_gain: sale.realized_gain,
+                        notes: sale.notes.as_deref().unwrap_or(""),
+                    })?;
+                    sales_count += 1;
+                }
+            }
+            sales_wtr.flush()?;
+
             pb.finish_and_clear();
             println!("✓ Exported {} investment(s) to {}", investments.len(), path);
             println!(
@@ -119,8 +154,13 @@ pub fn run(path: String, format: String) -> Result<()> {
                 dividend_count,
                 dividend_path.display()
             );
-            if price_count > 0 || dividend_count > 0 {
-                println!("  ℹ️  Import all three files together to restore the full portfolio.");
+            println!(
+                "  💸 Sales:         {} record(s) → {}",
+                sales_count,
+                sales_path.display()
+            );
+            if price_count > 0 || dividend_count > 0 || sales_count > 0 {
+                println!("  ℹ️  Import all files together to restore the full portfolio.");
             }
         }
         "json" => {

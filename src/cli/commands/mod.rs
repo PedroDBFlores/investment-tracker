@@ -14,6 +14,7 @@ pub mod list;
 pub mod list_dividends;
 pub mod performance;
 pub mod portfolio;
+pub mod sell;
 pub mod update;
 pub mod view;
 
@@ -38,6 +39,7 @@ impl Cli {
                 notes,
                 dividend_yield,
                 dividend_frequency,
+                units,
             } => add::run(
                 investment_type,
                 name,
@@ -47,6 +49,7 @@ impl Cli {
                 notes,
                 dividend_yield,
                 dividend_frequency,
+                units,
             ),
             Commands::List => list::run(),
             Commands::View { id } => view::run(id),
@@ -56,7 +59,8 @@ impl Cli {
                 current_value,
                 date,
                 notes,
-            } => update::run(id, amount, current_value, date, notes),
+                units,
+            } => update::run(id, amount, current_value, date, notes, units),
             Commands::Delete { id, yes } => delete::run(id, yes),
             Commands::Portfolio { detailed: _ } => portfolio::run(),
             Commands::Export { path, format } => export::run(path, format),
@@ -67,7 +71,8 @@ impl Cli {
                 price,
                 date,
                 notes,
-            } => add_price::run(id, price, date, notes),
+                unit_price,
+            } => add_price::run(id, price, date, notes, unit_price),
             Commands::Performance { id, range } => performance::run(id, range),
             Commands::AddDividend {
                 id,
@@ -78,6 +83,13 @@ impl Cli {
             Commands::ListDividends { id } => list_dividends::run(id),
             Commands::Analytics => analytics::run(),
             Commands::Interactive => interactive::run(),
+            Commands::Sell {
+                id,
+                units_sold,
+                price_per_unit,
+                date,
+                notes,
+            } => sell::run(id, units_sold, price_per_unit, date, notes),
         }
     }
 }
@@ -106,6 +118,9 @@ pub enum Commands {
         /// Dividend frequency (e.g., "monthly", "quarterly", "annual")
         #[arg(short = 'f', long)]
         dividend_frequency: Option<String>,
+        /// Number of units/shares purchased
+        #[arg(short = 'u', long)]
+        units: Option<f64>,
     },
     /// List all investments in your portfolio
     List,
@@ -127,6 +142,9 @@ pub enum Commands {
         /// Update notes for this investment
         #[arg(short = 'n', long)]
         notes: Option<String>,
+        /// Update number of units/shares held
+        #[arg(short = 'u', long)]
+        units: Option<f64>,
     },
     /// Delete an investment from your portfolio
     Delete {
@@ -171,6 +189,9 @@ pub enum Commands {
         /// Optional notes
         #[arg(short, long)]
         notes: Option<String>,
+        /// Price per individual unit/share at this date
+        #[arg(long)]
+        unit_price: Option<f64>,
     },
     /// Show performance report for all investments or a specific one
     Performance {
@@ -201,6 +222,20 @@ pub enum Commands {
     Analytics,
     /// Launch interactive mode — a guided menu for all portfolio actions
     Interactive,
+    /// Record the sale of units in an investment
+    Sell {
+        /// ID of the investment
+        id: String,
+        /// Number of units/shares sold
+        units_sold: f64,
+        /// Sale price per unit/share
+        price_per_unit: f64,
+        /// Date of sale (YYYY-MM-DD, defaults to today)
+        date: Option<String>,
+        /// Optional notes
+        #[arg(short, long)]
+        notes: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
