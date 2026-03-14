@@ -2,6 +2,7 @@
 
 A fast, offline-first CLI tool for tracking your investment portfolio. Record investments, monitor performance, track dividends, and analyse your portfolio — all from the terminal, with no internet connection required.
 
+[![CI](https://github.com/pedrodbflores/investment-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/pedrodbflores/investment-tracker/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
 

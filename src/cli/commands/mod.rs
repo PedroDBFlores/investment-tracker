@@ -19,7 +19,7 @@ pub mod view;
 
 #[derive(Parser)]
 #[command(name = "investment-tracker")]
-#[command(version = "0.1.0")]
+#[command(version)]
 #[command(about = "A CLI investment tracker for managing your portfolio", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
