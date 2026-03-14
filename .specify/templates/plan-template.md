@@ -31,7 +31,15 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+Gates determined by the Investment Tracker Constitution:
+
+- TDD Gate: All Phase 0 proposals that include runnable code must provide failing tests that describe expected behavior. CI must show tests exist for new behavioral code.
+- Linting & Static Analysis Gate: Project linters/formatters must accept the code without errors at merge time.
+- Coverage Gate: New modules must demonstrate unit coverage >= 80% or include a documented mitigation plan.
+- UX Gate (if UI changes): Storybook stories and visual diff snapshots required for changed components; design reviewer approval required for deviations.
+- Performance Gate (perf-impacting changes): PRs labeled perf must include a short performance summary (bundle delta or k6 run) and not exceed defined budgets.
+
+Projects must reference the constitution in PR descriptions and include links to the relevant tests, Storybook stories, or performance artifacts.
 
 ## Project Structure
 
