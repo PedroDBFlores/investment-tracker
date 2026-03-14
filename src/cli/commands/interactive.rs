@@ -2,7 +2,7 @@ use crate::core::{Investment, InvestmentType, Storage};
 use crate::error::Result;
 use crate::utils::display::spinner;
 use chrono::Local;
-use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
+use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 
 // ── Top-level menu actions ────────────────────────────────────────────────────
 
@@ -96,7 +96,13 @@ fn interactive_add(theme: &ColorfulTheme) -> Result<()> {
 
     // Investment type
     let type_labels = vec![
-        "Stock", "ETF", "Mutual Fund", "Deposit", "Bond", "Crypto", "Other",
+        "Stock",
+        "ETF",
+        "Mutual Fund",
+        "Deposit",
+        "Bond",
+        "Crypto",
+        "Other",
     ];
     let type_idx = Select::with_theme(theme)
         .with_prompt("Investment type")
@@ -185,14 +191,24 @@ fn interactive_add(theme: &ColorfulTheme) -> Result<()> {
 
     // Dividend frequency (optional, only if yield was given)
     let dividend_frequency = if dividend_yield.is_some() {
-        let freq_str: String = Input::with_theme(theme)
-            .with_prompt("Dividend frequency (e.g. monthly, quarterly, annual — blank to skip)")
-            .allow_empty(true)
-            .interact_text()?;
-        if freq_str.trim().is_empty() {
-            None
-        } else {
-            Some(freq_str.trim().to_string())
+        let freq_options = vec![
+            "Monthly",
+            "Quarterly",
+            "Semi-annual",
+            "Annual",
+            "Skip (no frequency)",
+        ];
+        let freq_idx = Select::with_theme(theme)
+            .with_prompt("Dividend frequency")
+            .items(&freq_options)
+            .default(1)
+            .interact()?;
+        match freq_idx {
+            0 => Some("Monthly".to_string()),
+            1 => Some("Quarterly".to_string()),
+            2 => Some("Semi-annual".to_string()),
+            3 => Some("Annual".to_string()),
+            _ => None,
         }
     } else {
         None
@@ -210,6 +226,12 @@ fn interactive_add(theme: &ColorfulTheme) -> Result<()> {
     println!("    Date:   {}", date);
     if let Some(ref n) = notes {
         println!("    Notes:  {}", n);
+    }
+    if let Some(y) = dividend_yield {
+        println!("    Dividend Yield: {:.2}%", y);
+    }
+    if let Some(ref f) = dividend_frequency {
+        println!("    Dividend Freq:  {}", f);
     }
     println!();
 
@@ -464,7 +486,10 @@ fn interactive_add_price(theme: &ColorfulTheme) -> Result<()> {
     })? {
         Some(inv) => {
             pb.finish_and_clear();
-            println!("  ✓ Recorded price ${:.2} for {} on {}", price, inv.name, date);
+            println!(
+                "  ✓ Recorded price ${:.2} for {} on {}",
+                price, inv.name, date
+            );
             println!("    Price history: {} entries", inv.price_history.len());
             if let Some(twr) = inv.time_weighted_return() {
                 println!("    Time-weighted return: {:.2}%", twr);
@@ -531,7 +556,10 @@ fn interactive_add_dividend(theme: &ColorfulTheme) -> Result<()> {
     })? {
         Some(inv) => {
             pb.finish_and_clear();
-            println!("  ✓ Recorded dividend ${:.2} for {} on {}", amount, inv.name, date);
+            println!(
+                "  ✓ Recorded dividend ${:.2} for {} on {}",
+                amount, inv.name, date
+            );
             println!("    Total dividends: ${:.2}", inv.total_dividends());
         }
         None => {
@@ -566,7 +594,10 @@ fn interactive_delete(theme: &ColorfulTheme) -> Result<()> {
 
     println!();
     println!("  ⚠  You are about to permanently delete:");
-    println!("     {} — {} — invested ${:.2}", inv.name, inv.investment_type, inv.amount);
+    println!(
+        "     {} — {} — invested ${:.2}",
+        inv.name, inv.investment_type, inv.amount
+    );
     println!();
 
     if !Confirm::with_theme(theme)
