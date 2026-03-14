@@ -1,0 +1,33 @@
+use crate::core::Storage;
+use crate::error::{InvestmentError, Result};
+use crate::utils::display::spinner;
+
+pub fn run(id: String, price: f64, date: Option<String>, notes: Option<String>) -> Result<()> {
+    let date = date.unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+    let pb = spinner("Recording price entry…");
+    let storage = Storage::open();
+    match storage.mutate_investment(&id, |inv| {
+        inv.add_price_entry(date.clone(), price, notes.clone())
+    })? {
+        Some(inv) => {
+            pb.finish_and_clear();
+            println!(
+                "✓ Recorded price ${:.2} for {} on {}",
+                price, inv.name, date
+            );
+            println!("  Price history: {} entries", inv.price_history.len());
+            if let Some(twr) = inv.time_weighted_return() {
+                println!("  Time-weighted return: {:.2}%", twr);
+            }
+        }
+        None => {
+            pb.finish_and_clear();
+            return Err(InvestmentError::NotFound(format!(
+                "Investment with ID '{}' not found",
+                id
+            ))
+            .into());
+        }
+    }
+    Ok(())
+}
