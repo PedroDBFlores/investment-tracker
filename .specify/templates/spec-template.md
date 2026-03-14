@@ -5,8 +5,6 @@
 **Status**: Draft  
 **Input**: User description: "$ARGUMENTS"
 
-Constitution Compliance: Each feature spec MUST include which constitution principles apply (TDD tests to be written, UX considerations, performance budgets) and list required test types (unit/integration/e2e) for the feature. This is used by the "Constitution Check" gate in the plan template.
-
 ## User Scenarios & Testing *(mandatory)*
 
 <!--
