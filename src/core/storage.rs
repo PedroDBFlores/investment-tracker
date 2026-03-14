@@ -67,6 +67,29 @@ impl Storage {
             .with_context(|| format!("Failed to write to file: {}", self.data_file.display()))
     }
 
+    /// Bulk-insert multiple investments in a single load → append → save cycle.
+    /// Investments without an ID get a fresh UUID assigned.  Returns the saved
+    /// investments with their final IDs.
+    pub fn add_investments(&self, investments: Vec<Investment>) -> Result<Vec<Investment>> {
+        let mut existing = self.load_investments()?;
+        let mut saved = Vec::with_capacity(investments.len());
+
+        for investment in investments {
+            let id = if investment.id.is_empty() {
+                Uuid::new_v4().to_string()
+            } else {
+                investment.id.clone()
+            };
+            let mut inv = investment;
+            inv.id = id;
+            saved.push(inv.clone());
+            existing.push(inv);
+        }
+
+        self.save_investments(&existing)?;
+        Ok(saved)
+    }
+
     pub fn add_investment(&self, investment: Investment) -> Result<Investment> {
         let mut investments = self.load_investments()?;
 

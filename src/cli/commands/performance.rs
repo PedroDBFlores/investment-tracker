@@ -1,6 +1,6 @@
 use crate::core::Storage;
 use crate::error::{InvestmentError, Result};
-use crate::utils::display::{fmt_amount, load_currency_symbol};
+use crate::utils::display::{colors_enabled, fmt_amount, load_currency_symbol};
 use chrono::Local;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
@@ -22,6 +22,7 @@ fn range_cutoff(range: &str) -> Option<String> {
 
 pub fn run(id: Option<String>, range: String) -> Result<()> {
     let sym = load_currency_symbol();
+    let colors = colors_enabled();
     let storage = Storage::open();
     let cutoff = range_cutoff(&range);
 
@@ -105,16 +106,16 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
                     .set_header(vec![
                         Cell::new("Date")
                             .add_attribute(Attribute::Bold)
-                            .fg(Color::Cyan),
+                            .fg(if colors { Color::Cyan } else { Color::White }),
                         Cell::new("Price")
                             .add_attribute(Attribute::Bold)
-                            .fg(Color::Cyan),
+                            .fg(if colors { Color::Cyan } else { Color::White }),
                         Cell::new("Change")
                             .add_attribute(Attribute::Bold)
-                            .fg(Color::Cyan),
+                            .fg(if colors { Color::Cyan } else { Color::White }),
                         Cell::new("Notes")
                             .add_attribute(Attribute::Bold)
-                            .fg(Color::Cyan),
+                            .fg(if colors { Color::Cyan } else { Color::White }),
                     ]);
 
                 let sorted = inv.sorted_price_history();
@@ -126,15 +127,23 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
                             let delta = entry.price - prev;
                             let pct = delta / prev * 100.0;
                             let sign = if delta >= 0.0 { "+" } else { "" };
-                            let color = if delta >= 0.0 {
-                                Color::Green
+                            let color = if colors {
+                                if delta >= 0.0 {
+                                    Color::Green
+                                } else {
+                                    Color::Red
+                                }
                             } else {
-                                Color::Red
+                                Color::White
                             };
                             Cell::new(format!("{}{:.2} ({}{:.2}%)", sign, delta, sign, pct))
                                 .fg(color)
                         }
-                        _ => Cell::new("—").fg(Color::DarkGrey),
+                        _ => Cell::new("—").fg(if colors {
+                            Color::DarkGrey
+                        } else {
+                            Color::White
+                        }),
                     };
 
                     let in_range = cutoff
@@ -142,7 +151,7 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
                         .map(|cut| entry.date.as_str() >= cut.as_str())
                         .unwrap_or(true);
 
-                    let date_cell = if in_range {
+                    let date_cell = if !colors || in_range {
                         Cell::new(&entry.date).fg(Color::White)
                     } else {
                         Cell::new(&entry.date).fg(Color::DarkGrey)
@@ -150,7 +159,11 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
 
                     table.add_row(vec![
                         date_cell,
-                        Cell::new(fmt_amount(&sym, entry.price)).fg(Color::Yellow),
+                        Cell::new(fmt_amount(&sym, entry.price)).fg(if colors {
+                            Color::Yellow
+                        } else {
+                            Color::White
+                        }),
                         change_cell,
                         Cell::new(entry.notes.as_deref().unwrap_or("")).fg(Color::White),
                     ]);
@@ -203,25 +216,25 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
                 .set_header(vec![
                     Cell::new("Name")
                         .add_attribute(Attribute::Bold)
-                        .fg(Color::Cyan),
+                        .fg(if colors { Color::Cyan } else { Color::White }),
                     Cell::new("Type")
                         .add_attribute(Attribute::Bold)
-                        .fg(Color::Cyan),
+                        .fg(if colors { Color::Cyan } else { Color::White }),
                     Cell::new("Invested")
                         .add_attribute(Attribute::Bold)
-                        .fg(Color::Cyan),
+                        .fg(if colors { Color::Cyan } else { Color::White }),
                     Cell::new("Current Value")
                         .add_attribute(Attribute::Bold)
-                        .fg(Color::Cyan),
+                        .fg(if colors { Color::Cyan } else { Color::White }),
                     Cell::new("Return ($)")
                         .add_attribute(Attribute::Bold)
-                        .fg(Color::Cyan),
+                        .fg(if colors { Color::Cyan } else { Color::White }),
                     Cell::new("Return (%)")
                         .add_attribute(Attribute::Bold)
-                        .fg(Color::Cyan),
+                        .fg(if colors { Color::Cyan } else { Color::White }),
                     Cell::new("TWR (%)")
                         .add_attribute(Attribute::Bold)
-                        .fg(Color::Cyan),
+                        .fg(if colors { Color::Cyan } else { Color::White }),
                 ]);
 
             let all_rows: Vec<_> = with_value.iter().chain(without_value.iter()).collect();
@@ -235,18 +248,38 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
                     Some(cv) => {
                         let roi = cv - inv.amount;
                         let pct = roi / inv.amount * 100.0;
-                        let color = if roi >= 0.0 { Color::Green } else { Color::Red };
+                        let color = if colors {
+                            if roi >= 0.0 { Color::Green } else { Color::Red }
+                        } else {
+                            Color::White
+                        };
                         let sign = if roi >= 0.0 { "+" } else { "" };
                         (
-                            Cell::new(fmt_amount(&sym, cv)).fg(Color::Yellow),
+                            Cell::new(fmt_amount(&sym, cv)).fg(if colors {
+                                Color::Yellow
+                            } else {
+                                Color::White
+                            }),
                             Cell::new(format!("{}{}", sign, fmt_amount(&sym, roi.abs()))).fg(color),
                             Cell::new(format!("{}{:.2}%", sign, pct)).fg(color),
                         )
                     }
                     None => (
-                        Cell::new("N/A").fg(Color::DarkGrey),
-                        Cell::new("N/A").fg(Color::DarkGrey),
-                        Cell::new("N/A").fg(Color::DarkGrey),
+                        Cell::new("N/A").fg(if colors {
+                            Color::DarkGrey
+                        } else {
+                            Color::White
+                        }),
+                        Cell::new("N/A").fg(if colors {
+                            Color::DarkGrey
+                        } else {
+                            Color::White
+                        }),
+                        Cell::new("N/A").fg(if colors {
+                            Color::DarkGrey
+                        } else {
+                            Color::White
+                        }),
                     ),
                 };
 
@@ -265,18 +298,34 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
                     let latest = filtered_entries.last().unwrap().price;
                     if earliest > 0.0 {
                         let twr = (latest - earliest) / earliest * 100.0;
-                        let color = if twr >= 0.0 { Color::Green } else { Color::Red };
+                        let color = if colors {
+                            if twr >= 0.0 { Color::Green } else { Color::Red }
+                        } else {
+                            Color::White
+                        };
                         let sign = if twr >= 0.0 { "+" } else { "" };
                         Cell::new(format!("{}{:.2}%", sign, twr)).fg(color)
                     } else {
-                        Cell::new("N/A").fg(Color::DarkGrey)
+                        Cell::new("N/A").fg(if colors {
+                            Color::DarkGrey
+                        } else {
+                            Color::White
+                        })
                     }
                 } else if let Some(pct) = inv.return_percentage() {
-                    let color = if pct >= 0.0 { Color::Green } else { Color::Red };
+                    let color = if colors {
+                        if pct >= 0.0 { Color::Green } else { Color::Red }
+                    } else {
+                        Color::White
+                    };
                     let sign = if pct >= 0.0 { "+" } else { "" };
                     Cell::new(format!("{}{:.2}%*", sign, pct)).fg(color)
                 } else {
-                    Cell::new("N/A").fg(Color::DarkGrey)
+                    Cell::new("N/A").fg(if colors {
+                        Color::DarkGrey
+                    } else {
+                        Color::White
+                    })
                 };
 
                 table.add_row(vec![

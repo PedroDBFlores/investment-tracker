@@ -1,11 +1,12 @@
 use crate::core::{PortfolioAnalytics, Storage};
 use crate::error::Result;
-use crate::utils::display::{fmt_amount, load_currency_symbol};
+use crate::utils::display::{colors_enabled, fmt_amount, load_currency_symbol};
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 
 pub fn run() -> Result<()> {
     let sym = load_currency_symbol();
+    let colors = colors_enabled();
     let storage = Storage::open();
     let analytics = PortfolioAnalytics::new(storage);
     let summary = analytics.get_summary()?;
@@ -13,43 +14,51 @@ pub fn run() -> Result<()> {
     println!("📊 Portfolio Summary");
     println!("===================");
 
+    let header_color = if colors { Color::Green } else { Color::White };
+    let label_color = if colors { Color::Cyan } else { Color::White };
+    let value_color = if colors { Color::Yellow } else { Color::White };
+
     let mut table = Table::new();
     table
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(vec![
             Cell::new("Metric")
                 .add_attribute(Attribute::Bold)
-                .fg(Color::Green),
+                .fg(header_color),
             Cell::new("Value")
                 .add_attribute(Attribute::Bold)
-                .fg(Color::Green),
+                .fg(header_color),
         ]);
 
     table.add_row(vec![
-        Cell::new("Total Investments").fg(Color::Cyan),
-        Cell::new(summary.total_investments.to_string()).fg(Color::Yellow),
+        Cell::new("Total Investments").fg(label_color),
+        Cell::new(summary.total_investments.to_string()).fg(value_color),
     ]);
     table.add_row(vec![
-        Cell::new("Total Invested").fg(Color::Cyan),
-        Cell::new(fmt_amount(&sym, summary.total_invested)).fg(Color::Yellow),
+        Cell::new("Total Invested").fg(label_color),
+        Cell::new(fmt_amount(&sym, summary.total_invested)).fg(value_color),
     ]);
     table.add_row(vec![
-        Cell::new("Current Value").fg(Color::Cyan),
-        Cell::new(fmt_amount(&sym, summary.total_current_value)).fg(Color::Yellow),
+        Cell::new("Current Value").fg(label_color),
+        Cell::new(fmt_amount(&sym, summary.total_current_value)).fg(value_color),
     ]);
     table.add_row(vec![
-        Cell::new("Total Dividends").fg(Color::Cyan),
-        Cell::new(fmt_amount(&sym, summary.total_dividends)).fg(Color::Yellow),
+        Cell::new("Total Dividends").fg(label_color),
+        Cell::new(fmt_amount(&sym, summary.total_dividends)).fg(value_color),
     ]);
 
-    let roi_color = if summary.total_roi >= 0.0 {
-        Color::Green
+    let roi_color = if colors {
+        if summary.total_roi >= 0.0 {
+            Color::Green
+        } else {
+            Color::Red
+        }
     } else {
-        Color::Red
+        Color::White
     };
     let roi_sign = if summary.total_roi >= 0.0 { "+" } else { "" };
     table.add_row(vec![
-        Cell::new("Total ROI").fg(Color::Cyan),
+        Cell::new("Total ROI").fg(label_color),
         Cell::new(format!(
             "{}{} ({}{:.2}%)",
             roi_sign,
@@ -64,21 +73,22 @@ pub fn run() -> Result<()> {
 
     println!("\n📈 Allocation by Type:");
     let mut alloc_table = Table::new();
+    let alloc_header_color = if colors { Color::Blue } else { Color::White };
     alloc_table
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(vec![
             Cell::new("Type")
                 .add_attribute(Attribute::Bold)
-                .fg(Color::Blue),
+                .fg(alloc_header_color),
             Cell::new("Count")
                 .add_attribute(Attribute::Bold)
-                .fg(Color::Blue),
+                .fg(alloc_header_color),
             Cell::new("Value")
                 .add_attribute(Attribute::Bold)
-                .fg(Color::Blue),
+                .fg(alloc_header_color),
             Cell::new("% of Portfolio")
                 .add_attribute(Attribute::Bold)
-                .fg(Color::Blue),
+                .fg(alloc_header_color),
         ])
         .load_preset(UTF8_FULL);
 
@@ -92,15 +102,20 @@ pub fn run() -> Result<()> {
         } else {
             0.0
         };
-        let pct_color = if percentage >= 20.0 {
-            Color::Yellow
+        let type_color = if colors { Color::Green } else { Color::White };
+        let pct_color = if colors {
+            if percentage >= 20.0 {
+                Color::Yellow
+            } else {
+                Color::Cyan
+            }
         } else {
-            Color::Cyan
+            Color::White
         };
         alloc_table.add_row(vec![
-            Cell::new(type_name).fg(Color::Green),
+            Cell::new(type_name).fg(type_color),
             Cell::new(count.to_string()).fg(Color::White),
-            Cell::new(fmt_amount(&sym, *value)).fg(Color::Yellow),
+            Cell::new(fmt_amount(&sym, *value)).fg(value_color),
             Cell::new(format!("{:.1}%", percentage)).fg(pct_color),
         ]);
     }

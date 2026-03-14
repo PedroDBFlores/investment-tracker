@@ -2,6 +2,14 @@ use chrono::Utc;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Duration;
 
+/// Returns `true` when colour output is enabled (the default), or `false` when
+/// the user has set `color-output = false` in their config.
+pub fn colors_enabled() -> bool {
+    crate::core::config::Config::load()
+        .map(|c| c.color_output.unwrap_or(true))
+        .unwrap_or(true)
+}
+
 pub fn now_timestamp() -> String {
     Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }

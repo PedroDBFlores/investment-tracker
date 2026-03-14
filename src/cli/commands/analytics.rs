@@ -1,11 +1,13 @@
 use crate::core::Storage;
 use crate::error::Result;
-use crate::utils::display::{fmt_amount, load_currency_symbol};
+use crate::utils::display::{colors_enabled, fmt_amount, load_currency_symbol};
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 
 pub fn run() -> Result<()> {
     let sym = load_currency_symbol();
+    let colors = colors_enabled();
+    let header_color = if colors { Color::Cyan } else { Color::White };
     let storage = Storage::open();
     let investments = storage.get_all_investments()?;
 
@@ -42,31 +44,36 @@ pub fn run() -> Result<()> {
             .set_header(vec![
                 Cell::new("Name")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(header_color),
                 Cell::new("Type")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(header_color),
                 Cell::new("Invested")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(header_color),
                 Cell::new("Current Value")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(header_color),
                 Cell::new("Return %")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(header_color),
             ]);
 
         for inv in with_value.iter().take(3) {
             let pct = inv.return_percentage().unwrap_or(0.0);
             let cv = inv.current_value.unwrap_or(0.0);
-            let color = if pct >= 0.0 { Color::Green } else { Color::Red };
+            let color = if colors {
+                if pct >= 0.0 { Color::Green } else { Color::Red }
+            } else {
+                Color::White
+            };
+            let cv_color = if colors { Color::Yellow } else { Color::White };
             let sign = if pct >= 0.0 { "+" } else { "" };
             best_table.add_row(vec![
                 Cell::new(&inv.name).fg(Color::White),
                 Cell::new(inv.investment_type.to_string()).fg(Color::White),
                 Cell::new(fmt_amount(&sym, inv.amount)).fg(Color::White),
-                Cell::new(fmt_amount(&sym, cv)).fg(Color::Yellow),
+                Cell::new(fmt_amount(&sym, cv)).fg(cv_color),
                 Cell::new(format!("{}{:.2}%", sign, pct))
                     .fg(color)
                     .add_attribute(Attribute::Bold),
@@ -87,19 +94,19 @@ pub fn run() -> Result<()> {
             .set_header(vec![
                 Cell::new("Name")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(header_color),
                 Cell::new("Type")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(header_color),
                 Cell::new("Invested")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(header_color),
                 Cell::new("Current Value")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(header_color),
                 Cell::new("Return %")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(header_color),
             ]);
 
         // Worst = tail of the already-sorted-descending list
@@ -111,13 +118,18 @@ pub fn run() -> Result<()> {
         for inv in with_value.iter().skip(skip) {
             let pct = inv.return_percentage().unwrap_or(0.0);
             let cv = inv.current_value.unwrap_or(0.0);
-            let color = if pct >= 0.0 { Color::Green } else { Color::Red };
+            let color = if colors {
+                if pct >= 0.0 { Color::Green } else { Color::Red }
+            } else {
+                Color::White
+            };
+            let cv_color = if colors { Color::Yellow } else { Color::White };
             let sign = if pct >= 0.0 { "+" } else { "" };
             worst_table.add_row(vec![
                 Cell::new(&inv.name).fg(Color::White),
                 Cell::new(inv.investment_type.to_string()).fg(Color::White),
                 Cell::new(fmt_amount(&sym, inv.amount)).fg(Color::White),
-                Cell::new(fmt_amount(&sym, cv)).fg(Color::Yellow),
+                Cell::new(fmt_amount(&sym, cv)).fg(cv_color),
                 Cell::new(format!("{}{:.2}%", sign, pct))
                     .fg(color)
                     .add_attribute(Attribute::Bold),
@@ -142,6 +154,7 @@ pub fn run() -> Result<()> {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
+        let div_header_color = if colors { Color::Cyan } else { Color::White };
         let mut div_table = Table::new();
         div_table
             .load_preset(UTF8_FULL)
@@ -149,25 +162,26 @@ pub fn run() -> Result<()> {
             .set_header(vec![
                 Cell::new("Name")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(div_header_color),
                 Cell::new("Type")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(div_header_color),
                 Cell::new("Payments")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(div_header_color),
                 Cell::new("Total Dividends")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(div_header_color),
             ]);
 
         for inv in dividend_earners.iter().take(3) {
+            let div_color = if colors { Color::Green } else { Color::White };
             div_table.add_row(vec![
                 Cell::new(&inv.name).fg(Color::White),
                 Cell::new(inv.investment_type.to_string()).fg(Color::White),
                 Cell::new(inv.dividends.len().to_string()).fg(Color::White),
                 Cell::new(fmt_amount(&sym, inv.total_dividends()))
-                    .fg(Color::Green)
+                    .fg(div_color)
                     .add_attribute(Attribute::Bold),
             ]);
         }
@@ -195,6 +209,9 @@ pub fn run() -> Result<()> {
             .cloned()
             .fold(f64::NEG_INFINITY, f64::max);
 
+        let stats_header_color = if colors { Color::Cyan } else { Color::White };
+        let stats_value_color = if colors { Color::Yellow } else { Color::White };
+
         let mut stats_table = Table::new();
         stats_table
             .load_preset(UTF8_FULL)
@@ -202,21 +219,25 @@ pub fn run() -> Result<()> {
             .set_header(vec![
                 Cell::new("Metric")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(stats_header_color),
                 Cell::new("Value")
                     .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
+                    .fg(stats_header_color),
             ]);
 
         stats_table.add_row(vec![
             Cell::new("Investments analysed").fg(Color::White),
-            Cell::new(with_value.len().to_string()).fg(Color::Yellow),
+            Cell::new(with_value.len().to_string()).fg(stats_value_color),
         ]);
 
-        let mean_color = if mean >= 0.0 {
-            Color::Green
+        let mean_color = if colors {
+            if mean >= 0.0 {
+                Color::Green
+            } else {
+                Color::Red
+            }
         } else {
-            Color::Red
+            Color::White
         };
         let mean_sign = if mean >= 0.0 { "+" } else { "" };
         stats_table.add_row(vec![
@@ -226,13 +247,17 @@ pub fn run() -> Result<()> {
 
         stats_table.add_row(vec![
             Cell::new("Std Dev of Return %").fg(Color::White),
-            Cell::new(format!("{:.2}%", std_dev)).fg(Color::Yellow),
+            Cell::new(format!("{:.2}%", std_dev)).fg(stats_value_color),
         ]);
 
-        let min_color = if min_pct >= 0.0 {
-            Color::Green
+        let min_color = if colors {
+            if min_pct >= 0.0 {
+                Color::Green
+            } else {
+                Color::Red
+            }
         } else {
-            Color::Red
+            Color::White
         };
         let min_sign = if min_pct >= 0.0 { "+" } else { "" };
         stats_table.add_row(vec![
@@ -240,10 +265,14 @@ pub fn run() -> Result<()> {
             Cell::new(format!("{}{:.2}%", min_sign, min_pct)).fg(min_color),
         ]);
 
-        let max_color = if max_pct >= 0.0 {
-            Color::Green
+        let max_color = if colors {
+            if max_pct >= 0.0 {
+                Color::Green
+            } else {
+                Color::Red
+            }
         } else {
-            Color::Red
+            Color::White
         };
         let max_sign = if max_pct >= 0.0 { "+" } else { "" };
         stats_table.add_row(vec![

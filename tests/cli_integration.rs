@@ -564,6 +564,341 @@ fn test_multiple_new_investments_all_have_current_value() -> Result<(), Box<dyn 
     Ok(())
 }
 
+// ── Item 2: CSV export/import round-trip is lossless ─────────────────────────
+
+/// A full CSV export → import round-trip must preserve price history via the
+/// sidecar file.
+#[test]
+fn test_csv_export_import_preserves_price_history() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("investments.json");
+    let export_path = temp_dir.path().join("portfolio.csv");
+
+    // Add an investment
+    let add_output = Command::cargo_bin("investment_tracker")?
+        .args([
+            "add",
+            "stock",
+            "Price History Corp",
+            "1000.00",
+            "2024-01-15",
+        ])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+    assert!(add_output.status.success());
+    let id = extract_id_from_output(&String::from_utf8_lossy(&add_output.stdout));
+
+    // Add two price entries
+    Command::cargo_bin("investment_tracker")?
+        .args([
+            "add-price",
+            &id,
+            "1100.00",
+            "2024-02-01",
+            "--notes",
+            "Feb update",
+        ])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add-price", &id, "1250.00", "2024-03-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    // Export to CSV
+    Command::cargo_bin("investment_tracker")?
+        .args(["export", export_path.to_str().unwrap()])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    // Sidecar must exist and have two rows (plus header)
+    let price_sidecar = temp_dir.path().join("portfolio_price_history.csv");
+    assert!(
+        price_sidecar.exists(),
+        "price history sidecar CSV should be created"
+    );
+    let sidecar_contents = fs::read_to_string(&price_sidecar)?;
+    let lines: Vec<_> = sidecar_contents.lines().collect();
+    assert_eq!(
+        lines.len(),
+        3,
+        "sidecar should have 1 header + 2 data rows, got:\n{}",
+        sidecar_contents
+    );
+
+    // Import into a fresh data file
+    let import_data_file = temp_dir.path().join("imported.json");
+    Command::cargo_bin("investment_tracker")?
+        .args(["import", export_path.to_str().unwrap()])
+        .env(
+            "INVESTMENT_TRACKER_DATA",
+            import_data_file.to_str().unwrap(),
+        )
+        .assert()
+        .success();
+
+    // Verify the imported JSON has price_history restored
+    let raw = fs::read_to_string(&import_data_file)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    let price_history = parsed[0]["price_history"]
+        .as_array()
+        .expect("price_history should be an array");
+
+    assert_eq!(
+        price_history.len(),
+        2,
+        "imported investment should have 2 price history entries"
+    );
+    assert_eq!(price_history[0]["price"], 1100.0);
+    assert_eq!(price_history[1]["price"], 1250.0);
+    assert_eq!(price_history[0]["notes"], "Feb update");
+
+    Ok(())
+}
+
+/// A full CSV export → import round-trip must preserve dividend history via the
+/// sidecar file.
+#[test]
+fn test_csv_export_import_preserves_dividends() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("investments.json");
+    let export_path = temp_dir.path().join("portfolio.csv");
+
+    // Add an investment
+    let add_output = Command::cargo_bin("investment_tracker")?
+        .args(["add", "etf", "Dividend ETF", "5000.00", "2024-01-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+    assert!(add_output.status.success());
+    let id = extract_id_from_output(&String::from_utf8_lossy(&add_output.stdout));
+
+    // Record two dividend payments
+    Command::cargo_bin("investment_tracker")?
+        .args(["add-dividend", &id, "75.00", "2024-03-31", "--notes", "Q1"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add-dividend", &id, "80.00", "2024-06-30", "--notes", "Q2"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    // Export
+    Command::cargo_bin("investment_tracker")?
+        .args(["export", export_path.to_str().unwrap()])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    let dividend_sidecar = temp_dir.path().join("portfolio_dividends.csv");
+    assert!(
+        dividend_sidecar.exists(),
+        "dividends sidecar CSV should be created"
+    );
+    let sidecar_contents = fs::read_to_string(&dividend_sidecar)?;
+    let lines: Vec<_> = sidecar_contents.lines().collect();
+    assert_eq!(
+        lines.len(),
+        3,
+        "dividends sidecar should have 1 header + 2 data rows"
+    );
+
+    // Import into a fresh data file
+    let import_data_file = temp_dir.path().join("imported.json");
+    Command::cargo_bin("investment_tracker")?
+        .args(["import", export_path.to_str().unwrap()])
+        .env(
+            "INVESTMENT_TRACKER_DATA",
+            import_data_file.to_str().unwrap(),
+        )
+        .assert()
+        .success();
+
+    let raw = fs::read_to_string(&import_data_file)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    let dividends = parsed[0]["dividends"]
+        .as_array()
+        .expect("dividends should be an array");
+
+    assert_eq!(
+        dividends.len(),
+        2,
+        "imported investment should have 2 dividends"
+    );
+    assert_eq!(dividends[0]["amount"], 75.0);
+    assert_eq!(dividends[1]["amount"], 80.0);
+    assert_eq!(dividends[0]["notes"], "Q1");
+    assert_eq!(dividends[1]["notes"], "Q2");
+
+    Ok(())
+}
+
+// ── Item 3: bulk import does a single save ────────────────────────────────────
+
+/// Importing multiple investments at once should succeed and save them all.
+/// This exercises the add_investments bulk path rather than the old N-write loop.
+#[test]
+fn test_bulk_import_saves_all_investments() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let export_data_file = temp_dir.path().join("source.json");
+    let import_data_file = temp_dir.path().join("dest.json");
+    let export_path = temp_dir.path().join("portfolio.csv");
+
+    // Create three investments in the source file
+    for (name, amount) in [
+        ("Alpha", "1000.00"),
+        ("Beta", "2000.00"),
+        ("Gamma", "3000.00"),
+    ] {
+        Command::cargo_bin("investment_tracker")?
+            .args(["add", "stock", name, amount, "2024-01-01"])
+            .env(
+                "INVESTMENT_TRACKER_DATA",
+                export_data_file.to_str().unwrap(),
+            )
+            .assert()
+            .success();
+    }
+
+    // Export to CSV
+    Command::cargo_bin("investment_tracker")?
+        .args(["export", export_path.to_str().unwrap()])
+        .env(
+            "INVESTMENT_TRACKER_DATA",
+            export_data_file.to_str().unwrap(),
+        )
+        .assert()
+        .success();
+
+    // Import all three into an empty destination in a single command
+    Command::cargo_bin("investment_tracker")?
+        .args(["import", export_path.to_str().unwrap()])
+        .env(
+            "INVESTMENT_TRACKER_DATA",
+            import_data_file.to_str().unwrap(),
+        )
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Imported 3 new investment(s)"));
+
+    // All three must be present in the destination
+    let raw = fs::read_to_string(&import_data_file)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    let investments = parsed.as_array().expect("should be a JSON array");
+    assert_eq!(investments.len(), 3, "all 3 investments should be imported");
+
+    Ok(())
+}
+
+/// Re-importing the same file must skip all duplicates and import nothing new.
+#[test]
+fn test_bulk_import_skips_duplicates() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("investments.json");
+    let export_path = temp_dir.path().join("portfolio.csv");
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "Solo Corp", "1000.00", "2024-01-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["export", export_path.to_str().unwrap()])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    // Import into the same data file — the investment already exists
+    Command::cargo_bin("investment_tracker")?
+        .args(["import", export_path.to_str().unwrap()])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Imported 0 new investment(s)"));
+
+    // Still only one investment
+    let raw = fs::read_to_string(&data_file)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    assert_eq!(parsed.as_array().unwrap().len(), 1);
+
+    Ok(())
+}
+
+// ── Item 6: timestamps preserved on CSV round-trip ───────────────────────────
+
+/// created_at and updated_at from the original investment must survive a
+/// CSV export → import round-trip unchanged.
+#[test]
+fn test_csv_roundtrip_preserves_timestamps() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("investments.json");
+    let export_path = temp_dir.path().join("portfolio.csv");
+    let import_data_file = temp_dir.path().join("imported.json");
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "Timestamp Corp", "1000.00", "2024-01-15"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    // Read the original timestamps from JSON
+    let original_raw = fs::read_to_string(&data_file)?;
+    let original: serde_json::Value = serde_json::from_str(&original_raw)?;
+    let original_created = original[0]["created_at"].as_str().unwrap().to_string();
+    let original_updated = original[0]["updated_at"].as_str().unwrap().to_string();
+
+    // Export to CSV
+    Command::cargo_bin("investment_tracker")?
+        .args(["export", export_path.to_str().unwrap()])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    // Verify the CSV contains the timestamp columns
+    let csv_contents = fs::read_to_string(&export_path)?;
+    assert!(
+        csv_contents.contains("created_at"),
+        "CSV should have a created_at column"
+    );
+    assert!(
+        csv_contents.contains("updated_at"),
+        "CSV should have an updated_at column"
+    );
+
+    // Import into a fresh data file
+    Command::cargo_bin("investment_tracker")?
+        .args(["import", export_path.to_str().unwrap()])
+        .env(
+            "INVESTMENT_TRACKER_DATA",
+            import_data_file.to_str().unwrap(),
+        )
+        .assert()
+        .success();
+
+    let imported_raw = fs::read_to_string(&import_data_file)?;
+    let imported: serde_json::Value = serde_json::from_str(&imported_raw)?;
+
+    assert_eq!(
+        imported[0]["created_at"].as_str().unwrap(),
+        original_created,
+        "created_at should be preserved after CSV round-trip"
+    );
+    assert_eq!(
+        imported[0]["updated_at"].as_str().unwrap(),
+        original_updated,
+        "updated_at should be preserved after CSV round-trip"
+    );
+
+    Ok(())
+}
+
 // ── Item 3: strict date validation ───────────────────────────────────────────
 
 /// Dates that look structurally plausible but are calendar-impossible (e.g.
