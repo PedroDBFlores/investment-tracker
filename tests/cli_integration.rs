@@ -390,3 +390,178 @@ fn extract_id_from_output(output: &str) -> String {
     let end = output.find(')').unwrap_or(output.len());
     output[start..end].trim().to_string()
 }
+
+// ── Issue 1: current_value equals amount on creation ─────────────────────────
+
+/// When `add` is called, the saved JSON must have current_value == amount.
+/// We verify this by reading the raw data file after adding an investment.
+#[test]
+fn test_add_sets_current_value_equal_to_amount() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "CurrentVal Corp", "3500.00", "2024-05-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    let raw = std::fs::read_to_string(&data_file)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    let inv = &parsed[0];
+
+    let amount = inv["amount"].as_f64().expect("amount should be a number");
+    let current_value = inv["current_value"]
+        .as_f64()
+        .expect("current_value should be set, not null");
+
+    assert!(
+        (amount - 3500.0).abs() < f64::EPSILON,
+        "amount should be 3500, got {}",
+        amount
+    );
+    assert_eq!(
+        amount, current_value,
+        "current_value ({}) should equal amount ({}) at creation",
+        current_value, amount
+    );
+
+    Ok(())
+}
+
+/// current_value must not be null / missing in the persisted JSON.
+#[test]
+fn test_add_current_value_is_not_null() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "etf", "No-Null ETF", "1200.00", "2024-03-10"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    let raw = std::fs::read_to_string(&data_file)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    let inv = &parsed[0];
+
+    assert!(
+        !inv["current_value"].is_null(),
+        "current_value should not be null after creation, got: {}",
+        inv["current_value"]
+    );
+
+    Ok(())
+}
+
+/// After creation, the `view` command should show the current value column
+/// populated with the same figure as the invested amount.
+#[test]
+fn test_view_shows_current_value_equal_to_amount_after_add()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    let add_output = Command::cargo_bin("investment_tracker")?
+        .args(["add", "bond", "View Bond", "800.00", "2024-07-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+
+    assert!(add_output.status.success());
+    let id = extract_id_from_output(&String::from_utf8_lossy(&add_output.stdout));
+
+    // `view` should show 800.00 in both the invested and current-value fields.
+    Command::cargo_bin("investment_tracker")?
+        .args(["view", &id])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("800.00"));
+
+    Ok(())
+}
+
+/// The `list` table must display the current value for a brand-new investment
+/// (previously it showed "—" because current_value was None).
+#[test]
+fn test_list_shows_current_value_for_new_investment() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "crypto", "ListCoin", "2000.00", "2024-08-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    // The list table should show 2000.00 in the Current Value column, not "—".
+    let list_output = Command::cargo_bin("investment_tracker")?
+        .args(["list"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+
+    assert!(list_output.status.success());
+    let stdout = String::from_utf8_lossy(&list_output.stdout);
+
+    assert!(
+        !stdout.contains('—'),
+        "list should not show '—' in Current Value for a new investment; got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("2000.00"),
+        "list should show 2000.00 as current value; got:\n{}",
+        stdout
+    );
+
+    Ok(())
+}
+
+/// Adding multiple investments and then listing them should show each
+/// investment's current value equal to its invested amount.
+#[test]
+fn test_multiple_new_investments_all_have_current_value() -> Result<(), Box<dyn std::error::Error>>
+{
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "Alpha", "1000.00", "2024-01-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "etf", "Beta", "2500.00", "2024-02-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "bond", "Gamma", "500.00", "2024-03-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    let raw = std::fs::read_to_string(&data_file)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    let investments = parsed.as_array().expect("should be a JSON array");
+
+    assert_eq!(investments.len(), 3);
+
+    for inv in investments {
+        let amount = inv["amount"]
+            .as_f64()
+            .expect("each investment must have an amount");
+        let current_value = inv["current_value"]
+            .as_f64()
+            .expect("each investment must have a non-null current_value");
+        assert_eq!(
+            amount, current_value,
+            "investment '{}': current_value {} should equal amount {}",
+            inv["name"], current_value, amount
+        );
+    }
+
+    Ok(())
+}

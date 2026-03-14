@@ -664,6 +664,7 @@ dependencies = [
  "dialoguer",
  "dirs",
  "indicatif",
+ "libc",
  "predicates",
  "serde",
  "serde_json",

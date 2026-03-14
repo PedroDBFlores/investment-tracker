@@ -60,6 +60,12 @@ pub fn run() -> Result<()> {
         let actions = MenuAction::all();
         let labels = MenuAction::labels();
 
+        // Drain any keystrokes (e.g. the Enter from a preceding Confirm prompt)
+        // that may still be sitting in the tty input queue.  dialoguer uses the
+        // raw tty directly, so a stale \n would otherwise be consumed
+        // immediately by the next Select, auto-selecting item 0.
+        drain_tty_input();
+
         let selection = Select::with_theme(&theme)
             .with_prompt("What would you like to do?")
             .items(&labels)
@@ -86,6 +92,56 @@ pub fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+// ── TTY input drain ───────────────────────────────────────────────────────────
+
+/// Discard any bytes already waiting in the terminal input queue before we
+/// render the main-menu `Select`.  This prevents a stale Enter (left over from
+/// a sub-command's final confirmation prompt) from immediately confirming item 0.
+///
+/// We put the tty in non-blocking mode, read until `EAGAIN`/`EWOULDBLOCK`, then
+/// restore blocking mode.  The whole operation is best-effort; any error is
+/// silently ignored so it never interrupts the normal flow.
+#[cfg(unix)]
+fn drain_tty_input() {
+    use std::fs::OpenOptions;
+    use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::io::AsRawFd;
+
+    // Open the controlling terminal directly so we never touch stdin/stdout.
+    let Ok(mut tty) = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open("/dev/tty")
+    else {
+        return;
+    };
+
+    let mut buf = [0u8; 64];
+    // Keep reading until there is nothing left (EAGAIN) or an error occurs.
+    loop {
+        match tty.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => continue,
+        }
+    }
+
+    // Restore blocking mode so dialoguer's subsequent read works normally.
+    // SAFETY: fd is valid for the lifetime of `tty`.
+    unsafe {
+        let fd = tty.as_raw_fd();
+        let flags = libc::fcntl(fd, libc::F_GETFL, 0);
+        if flags != -1 {
+            libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn drain_tty_input() {
+    // On non-Unix platforms there is no /dev/tty; do nothing.
 }
 
 // ── Add investment ────────────────────────────────────────────────────────────
@@ -254,7 +310,7 @@ fn interactive_add(theme: &ColorfulTheme) -> Result<()> {
         symbol,
         amount,
         date,
-        None,
+        Some(amount),
         notes,
         dividend_yield,
         dividend_frequency,
@@ -466,6 +522,132 @@ mod tests {
         let summary = portfolio_summary(&investments);
         assert_eq!(summary.total_invested, 5000.0);
         assert_eq!(summary.total_current, Some(5300.0));
+    }
+
+    // ── Issue 1: current_value defaults to amount on creation ─────────────────
+
+    /// A freshly created investment must have current_value == amount.
+    #[test]
+    fn test_new_investment_current_value_equals_amount() {
+        let inv = Investment::new(
+            uuid::Uuid::new_v4().to_string(),
+            InvestmentType::Stock,
+            "Test Corp".to_string(),
+            None,
+            1500.0,
+            "2024-06-01".to_string(),
+            Some(1500.0), // current_value set to amount at creation
+            None,
+            None,
+            None,
+        )
+        .expect("valid investment");
+
+        assert_eq!(
+            inv.current_value,
+            Some(inv.amount),
+            "current_value should equal amount immediately after creation"
+        );
+    }
+
+    /// Verifies that the value passed as current_value is exactly the amount,
+    /// not None and not some other value.
+    #[test]
+    fn test_new_investment_current_value_is_not_none() {
+        let amount = 2750.0;
+        let inv = Investment::new(
+            uuid::Uuid::new_v4().to_string(),
+            InvestmentType::ETF,
+            "My ETF".to_string(),
+            Some("ETFX".to_string()),
+            amount,
+            "2024-01-15".to_string(),
+            Some(amount),
+            None,
+            None,
+            None,
+        )
+        .expect("valid investment");
+
+        assert!(
+            inv.current_value.is_some(),
+            "current_value must not be None after creation"
+        );
+        assert_eq!(inv.current_value.unwrap(), amount);
+    }
+
+    /// Updating the current_value after creation must NOT change the original
+    /// invested amount — the two are independent once the investment exists.
+    #[test]
+    fn test_current_value_can_diverge_from_amount_after_update() {
+        let amount = 1000.0;
+        let mut inv = Investment::new(
+            uuid::Uuid::new_v4().to_string(),
+            InvestmentType::Stock,
+            "Diverge Corp".to_string(),
+            None,
+            amount,
+            "2024-03-01".to_string(),
+            Some(amount),
+            None,
+            None,
+            None,
+        )
+        .expect("valid investment");
+
+        // Simulate a later price update
+        let _ = inv.update_current_value(1250.0);
+
+        assert_eq!(inv.amount, amount, "invested amount must stay unchanged");
+        assert_eq!(
+            inv.current_value,
+            Some(1250.0),
+            "current_value should reflect the updated price"
+        );
+    }
+
+    /// A new investment with current_value == amount shows 0 ROI and 0%.
+    #[test]
+    fn test_new_investment_has_zero_return_on_creation() {
+        let amount = 500.0;
+        let inv = Investment::new(
+            uuid::Uuid::new_v4().to_string(),
+            InvestmentType::Deposit,
+            "Zero Return".to_string(),
+            None,
+            amount,
+            "2024-01-01".to_string(),
+            Some(amount),
+            None,
+            None,
+            None,
+        )
+        .expect("valid investment");
+
+        let roi = inv.return_on_investment().expect("ROI should be available");
+        let pct = inv
+            .return_percentage()
+            .expect("percentage should be available");
+        assert!(
+            roi.abs() < f64::EPSILON,
+            "ROI should be 0 when current == invested"
+        );
+        assert!(
+            pct.abs() < f64::EPSILON,
+            "return % should be 0 when current == invested"
+        );
+    }
+
+    // ── Issue 2: drain_tty_input must not panic ────────────────────────────────
+
+    /// `drain_tty_input` is a best-effort, side-effect-only function.
+    /// The only hard requirement is that it never panics, regardless of the
+    /// terminal environment (e.g. in a CI runner with no tty attached).
+    #[test]
+    fn test_drain_tty_input_does_not_panic() {
+        // Call it twice to ensure repeated calls are also safe.
+        drain_tty_input();
+        drain_tty_input();
     }
 }
 

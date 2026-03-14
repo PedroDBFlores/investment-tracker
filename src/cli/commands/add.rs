@@ -21,7 +21,7 @@ pub fn run(
         symbol,
         amount,
         date,
-        None,
+        Some(amount),
         None,
         dividend_yield,
         dividend_frequency,
