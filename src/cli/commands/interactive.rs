@@ -283,12 +283,13 @@ fn interactive_list() -> Result<()> {
         return Ok(());
     }
 
+    let cur = load_currency_symbol();
+
     println!("  📋  Your Investments  ({} total)", investments.len());
     println!("  {}", "─".repeat(60));
 
     for (i, inv) in investments.iter().enumerate() {
         let short_id = &inv.id[..8.min(inv.id.len())];
-        let cur = load_currency_symbol();
         let value_str = match inv.current_value {
             Some(cv) => {
                 let roi = cv - inv.amount;
@@ -309,7 +310,163 @@ fn interactive_list() -> Result<()> {
         );
     }
 
+    let summary = portfolio_summary(&investments);
+
+    println!("  {}", "─".repeat(60));
+    println!(
+        "  💰  Total invested:      {}",
+        fmt_amount(&cur, summary.total_invested)
+    );
+    match summary.total_current {
+        Some(cv) => {
+            let roi = cv - summary.total_invested;
+            let sign = if roi >= 0.0 { "+" } else { "" };
+            let pct = roi / summary.total_invested * 100.0;
+            println!(
+                "  📈  Total current value: {}  ({}{:.1}%)",
+                fmt_amount(&cur, cv),
+                sign,
+                pct
+            );
+        }
+        None => {
+            println!("  📈  Total current value: —");
+        }
+    }
+
     Ok(())
+}
+
+// ── Portfolio summary ─────────────────────────────────────────────────────────
+
+struct PortfolioSummary {
+    total_invested: f64,
+    total_current: Option<f64>,
+}
+
+fn portfolio_summary(investments: &[Investment]) -> PortfolioSummary {
+    let total_invested: f64 = investments.iter().map(|inv| inv.amount).sum();
+    let current_values: Vec<f64> = investments
+        .iter()
+        .filter_map(|inv| inv.current_value)
+        .collect();
+    let total_current = if current_values.is_empty() {
+        None
+    } else {
+        Some(current_values.iter().sum())
+    };
+    PortfolioSummary {
+        total_invested,
+        total_current,
+    }
+}
+
+// ── Pick an investment by interactive list ────────────────────────────────────
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{Investment, InvestmentType};
+
+    fn make_investment(amount: f64, current_value: Option<f64>) -> Investment {
+        let mut inv = Investment::new(
+            uuid::Uuid::new_v4().to_string(),
+            InvestmentType::Stock,
+            format!("Inv {}", amount),
+            None,
+            amount,
+            "2024-01-01".to_string(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("valid investment");
+        inv.current_value = current_value;
+        inv
+    }
+
+    // ── portfolio_summary ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_summary_empty_list() {
+        let summary = portfolio_summary(&[]);
+        assert_eq!(summary.total_invested, 0.0);
+        assert!(summary.total_current.is_none());
+    }
+
+    #[test]
+    fn test_summary_no_current_values() {
+        let investments = vec![make_investment(1000.0, None), make_investment(2000.0, None)];
+        let summary = portfolio_summary(&investments);
+        assert_eq!(summary.total_invested, 3000.0);
+        assert!(summary.total_current.is_none());
+    }
+
+    #[test]
+    fn test_summary_all_have_current_values() {
+        let investments = vec![
+            make_investment(1000.0, Some(1200.0)),
+            make_investment(2000.0, Some(2500.0)),
+        ];
+        let summary = portfolio_summary(&investments);
+        assert_eq!(summary.total_invested, 3000.0);
+        assert_eq!(summary.total_current, Some(3700.0));
+    }
+
+    #[test]
+    fn test_summary_partial_current_values() {
+        // Only investments with a current_value should be summed into total_current
+        let investments = vec![
+            make_investment(1000.0, Some(1100.0)),
+            make_investment(500.0, None),
+            make_investment(2000.0, Some(1800.0)),
+        ];
+        let summary = portfolio_summary(&investments);
+        assert_eq!(summary.total_invested, 3500.0);
+        assert_eq!(summary.total_current, Some(2900.0));
+    }
+
+    #[test]
+    fn test_summary_single_investment_with_gain() {
+        let investments = vec![make_investment(1000.0, Some(1500.0))];
+        let summary = portfolio_summary(&investments);
+        assert_eq!(summary.total_invested, 1000.0);
+        assert_eq!(summary.total_current, Some(1500.0));
+        // Verify the derived ROI and percentage are correct
+        let cv = summary.total_current.unwrap();
+        let roi = cv - summary.total_invested;
+        let pct = roi / summary.total_invested * 100.0;
+        assert!((roi - 500.0).abs() < f64::EPSILON);
+        assert!((pct - 50.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_summary_single_investment_with_loss() {
+        let investments = vec![make_investment(2000.0, Some(1600.0))];
+        let summary = portfolio_summary(&investments);
+        assert_eq!(summary.total_invested, 2000.0);
+        assert_eq!(summary.total_current, Some(1600.0));
+        let cv = summary.total_current.unwrap();
+        let roi = cv - summary.total_invested;
+        let pct = roi / summary.total_invested * 100.0;
+        assert!((roi - (-400.0)).abs() < f64::EPSILON);
+        assert!((pct - (-20.0)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_summary_totals_are_sum_of_all_investments() {
+        let investments = vec![
+            make_investment(500.0, Some(600.0)),
+            make_investment(1500.0, Some(1400.0)),
+            make_investment(3000.0, Some(3300.0)),
+        ];
+        let summary = portfolio_summary(&investments);
+        assert_eq!(summary.total_invested, 5000.0);
+        assert_eq!(summary.total_current, Some(5300.0));
+    }
 }
 
 // ── Pick an investment by interactive list ────────────────────────────────────
