@@ -1,5 +1,6 @@
 use crate::core::Storage;
 use crate::error::{InvestmentError, Result};
+use crate::utils::display::{fmt_amount, load_currency_symbol};
 use chrono::Local;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
@@ -20,6 +21,7 @@ fn range_cutoff(range: &str) -> Option<String> {
 }
 
 pub fn run(id: Option<String>, range: String) -> Result<()> {
+    let sym = load_currency_symbol();
     let storage = Storage::open();
     let cutoff = range_cutoff(&range);
 
@@ -34,18 +36,24 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
             println!("{}", "─".repeat(50));
             println!("  ID:           {}", inv.id);
             println!("  Type:         {}", inv.investment_type);
-            if let Some(sym) = &inv.symbol {
-                println!("  Symbol:       {}", sym);
+            if let Some(ticker) = &inv.symbol {
+                println!("  Symbol:       {}", ticker);
             }
-            println!("  Invested:     ${:.2}", inv.amount);
+            println!("  Invested:     {}", fmt_amount(&sym, inv.amount));
 
             match inv.current_value {
                 Some(cv) => {
                     let roi = cv - inv.amount;
                     let pct = (roi / inv.amount) * 100.0;
                     let sign = if roi >= 0.0 { "+" } else { "" };
-                    println!("  Current Value: ${:.2}", cv);
-                    println!("  Return:        {}{:.2} ({}{:.2}%)", sign, roi, sign, pct);
+                    println!("  Current Value: {}", fmt_amount(&sym, cv));
+                    println!(
+                        "  Return:        {}{} ({}{:.2}%)",
+                        sign,
+                        fmt_amount(&sym, roi.abs()),
+                        sign,
+                        pct.abs()
+                    );
                 }
                 None => {
                     println!("  Current Value: N/A");
@@ -142,7 +150,7 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
 
                     table.add_row(vec![
                         date_cell,
-                        Cell::new(format!("${:.2}", entry.price)).fg(Color::Yellow),
+                        Cell::new(fmt_amount(&sym, entry.price)).fg(Color::Yellow),
                         change_cell,
                         Cell::new(entry.notes.as_deref().unwrap_or("")).fg(Color::White),
                     ]);
@@ -219,7 +227,7 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
             let all_rows: Vec<_> = with_value.iter().chain(without_value.iter()).collect();
 
             for inv in all_rows {
-                let invested_cell = Cell::new(format!("${:.2}", inv.amount)).fg(Color::White);
+                let invested_cell = Cell::new(fmt_amount(&sym, inv.amount)).fg(Color::White);
                 let type_cell = Cell::new(inv.investment_type.to_string()).fg(Color::White);
                 let name_cell = Cell::new(&inv.name).fg(Color::White);
 
@@ -230,8 +238,8 @@ pub fn run(id: Option<String>, range: String) -> Result<()> {
                         let color = if roi >= 0.0 { Color::Green } else { Color::Red };
                         let sign = if roi >= 0.0 { "+" } else { "" };
                         (
-                            Cell::new(format!("${:.2}", cv)).fg(Color::Yellow),
-                            Cell::new(format!("{}{:.2}", sign, roi)).fg(color),
+                            Cell::new(fmt_amount(&sym, cv)).fg(Color::Yellow),
+                            Cell::new(format!("{}{}", sign, fmt_amount(&sym, roi.abs()))).fg(color),
                             Cell::new(format!("{}{:.2}%", sign, pct)).fg(color),
                         )
                     }

@@ -1,7 +1,9 @@
 use crate::core::Storage;
 use crate::error::Result;
+use crate::utils::display::{fmt_amount, fmt_return, load_currency_symbol};
 
 pub fn run(id: String) -> Result<()> {
+    let sym = load_currency_symbol();
     let storage = Storage::open();
     match storage.get_investment(&id)? {
         Some(inv) => {
@@ -10,18 +12,17 @@ pub fn run(id: String) -> Result<()> {
             println!("ID: {}", inv.id);
             println!("Type: {}", inv.investment_type);
             println!("Name: {}", inv.name);
-            println!("Amount: ${:.2}", inv.amount);
+            println!("Amount: {}", fmt_amount(&sym, inv.amount));
             println!("Date: {}", inv.date);
             if let Some(symbol) = &inv.symbol {
                 println!("Symbol: {}", symbol);
             }
             if let Some(cv) = inv.current_value {
-                println!("Current Value: ${:.2}", cv);
+                println!("Current Value: {}", fmt_amount(&sym, cv));
                 if let Some(roi) = inv.return_on_investment() {
                     println!(
-                        "Return: ${:.2} ({:.2}%)",
-                        roi,
-                        inv.return_percentage().unwrap_or(0.0)
+                        "Return: {}",
+                        fmt_return(&sym, roi, inv.return_percentage().unwrap_or(0.0))
                     );
                 }
             }
@@ -36,14 +37,14 @@ pub fn run(id: String) -> Result<()> {
             }
             if !inv.dividends.is_empty() {
                 println!(
-                    "Total Dividends: ${:.2} ({} payments)",
-                    inv.total_dividends(),
+                    "Total Dividends: {} ({} payments)",
+                    fmt_amount(&sym, inv.total_dividends()),
                     inv.dividends.len()
                 );
                 if let Some(total_ret) = inv.total_return_with_dividends() {
                     println!(
-                        "Total Return (incl. dividends): ${:.2} ({:.2}%)",
-                        total_ret,
+                        "Total Return (incl. dividends): {} ({:.2}%)",
+                        fmt_amount(&sym, total_ret),
                         inv.total_return_percentage_with_dividends().unwrap_or(0.0)
                     );
                 }

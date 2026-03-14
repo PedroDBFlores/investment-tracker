@@ -6,14 +6,31 @@ pub fn now_timestamp() -> String {
     Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
-#[allow(dead_code)]
-pub fn format_currency(value: f64) -> String {
-    format!("${:.2}", value)
+/// Loads the currency symbol from config (e.g. "€" when currency is set to "EUR").
+/// Falls back to "$" if config cannot be read.
+pub fn load_currency_symbol() -> String {
+    crate::core::config::Config::load()
+        .map(|c| c.currency_symbol())
+        .unwrap_or_else(|_| "$".to_string())
 }
 
-#[allow(dead_code)]
-pub fn format_return(roi: f64, pct: f64) -> String {
-    format!("${:.2} ({:.2}%)", roi, pct)
+/// Formats a monetary value with the configured currency symbol.
+/// e.g. `fmt_amount("€", 1234.5)` → `"€1234.50"`
+pub fn fmt_amount(symbol: &str, value: f64) -> String {
+    format!("{}{:.2}", symbol, value)
+}
+
+/// Formats a return as `"+€150.00 (+15.00%)"` using the given symbol.
+pub fn fmt_return(symbol: &str, roi: f64, pct: f64) -> String {
+    let sign = if roi >= 0.0 { "+" } else { "" };
+    format!(
+        "{}{}{:.2} ({}{:.2}%)",
+        sign,
+        symbol,
+        roi.abs(),
+        sign,
+        pct.abs()
+    )
 }
 
 /// Creates a spinner with a consistent style and the given message.

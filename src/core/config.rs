@@ -62,6 +62,48 @@ impl Config {
     pub fn get_data_directory(&self) -> Option<PathBuf> {
         self.data_directory.as_ref().map(|s| PathBuf::from(s))
     }
+
+    /// Maps a currency code (e.g. "USD", "EUR") to its symbol (e.g. "$", "€").
+    /// Falls back to the code itself if unrecognised, so custom codes still display.
+    pub fn currency_symbol(&self) -> String {
+        let code = self.default_currency.as_deref().unwrap_or("USD");
+        match code.to_uppercase().as_str() {
+            "USD" => "$".to_string(),
+            "EUR" => "€".to_string(),
+            "GBP" => "£".to_string(),
+            "JPY" => "¥".to_string(),
+            "CNY" | "CNH" => "¥".to_string(),
+            "CHF" => "Fr".to_string(),
+            "CAD" => "CA$".to_string(),
+            "AUD" => "A$".to_string(),
+            "NZD" => "NZ$".to_string(),
+            "SEK" => "kr".to_string(),
+            "NOK" => "kr".to_string(),
+            "DKK" => "kr".to_string(),
+            "BRL" => "R$".to_string(),
+            "INR" => "₹".to_string(),
+            "KRW" => "₩".to_string(),
+            "HKD" => "HK$".to_string(),
+            "SGD" => "S$".to_string(),
+            "MXN" => "MX$".to_string(),
+            "PLN" => "zł".to_string(),
+            "CZK" => "Kč".to_string(),
+            "HUF" => "Ft".to_string(),
+            "TRY" => "₺".to_string(),
+            "RUB" => "₽".to_string(),
+            "ZAR" => "R".to_string(),
+            "BTC" => "₿".to_string(),
+            "ETH" => "Ξ".to_string(),
+            other => other.to_string(),
+        }
+    }
+
+    /// Formats a monetary value with the configured currency symbol.
+    /// e.g. `fmt_amount(1234.5)` → `"€1234.50"` when currency is EUR.
+    #[allow(dead_code)]
+    pub fn fmt_amount(&self, value: f64) -> String {
+        format!("{}{:.2}", self.currency_symbol(), value)
+    }
 }
 
 #[cfg(test)]

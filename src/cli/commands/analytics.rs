@@ -1,9 +1,11 @@
 use crate::core::Storage;
 use crate::error::Result;
+use crate::utils::display::{fmt_amount, load_currency_symbol};
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 
 pub fn run() -> Result<()> {
+    let sym = load_currency_symbol();
     let storage = Storage::open();
     let investments = storage.get_all_investments()?;
 
@@ -63,8 +65,8 @@ pub fn run() -> Result<()> {
             best_table.add_row(vec![
                 Cell::new(&inv.name).fg(Color::White),
                 Cell::new(inv.investment_type.to_string()).fg(Color::White),
-                Cell::new(format!("${:.2}", inv.amount)).fg(Color::White),
-                Cell::new(format!("${:.2}", cv)).fg(Color::Yellow),
+                Cell::new(fmt_amount(&sym, inv.amount)).fg(Color::White),
+                Cell::new(fmt_amount(&sym, cv)).fg(Color::Yellow),
                 Cell::new(format!("{}{:.2}%", sign, pct))
                     .fg(color)
                     .add_attribute(Attribute::Bold),
@@ -114,8 +116,8 @@ pub fn run() -> Result<()> {
             worst_table.add_row(vec![
                 Cell::new(&inv.name).fg(Color::White),
                 Cell::new(inv.investment_type.to_string()).fg(Color::White),
-                Cell::new(format!("${:.2}", inv.amount)).fg(Color::White),
-                Cell::new(format!("${:.2}", cv)).fg(Color::Yellow),
+                Cell::new(fmt_amount(&sym, inv.amount)).fg(Color::White),
+                Cell::new(fmt_amount(&sym, cv)).fg(Color::Yellow),
                 Cell::new(format!("{}{:.2}%", sign, pct))
                     .fg(color)
                     .add_attribute(Attribute::Bold),
@@ -164,7 +166,7 @@ pub fn run() -> Result<()> {
                 Cell::new(&inv.name).fg(Color::White),
                 Cell::new(inv.investment_type.to_string()).fg(Color::White),
                 Cell::new(inv.dividends.len().to_string()).fg(Color::White),
-                Cell::new(format!("${:.2}", inv.total_dividends()))
+                Cell::new(fmt_amount(&sym, inv.total_dividends()))
                     .fg(Color::Green)
                     .add_attribute(Attribute::Bold),
             ]);

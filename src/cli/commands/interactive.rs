@@ -1,6 +1,6 @@
 use crate::core::{Investment, InvestmentType, Storage};
 use crate::error::Result;
-use crate::utils::display::spinner;
+use crate::utils::display::{fmt_amount, load_currency_symbol, spinner};
 use chrono::Local;
 use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 
@@ -222,7 +222,10 @@ fn interactive_add(theme: &ColorfulTheme) -> Result<()> {
     if let Some(ref s) = symbol {
         println!("    Symbol: {}", s);
     }
-    println!("    Amount: ${:.2}", amount);
+    println!(
+        "    Amount: {}",
+        fmt_amount(&load_currency_symbol(), amount)
+    );
     println!("    Date:   {}", date);
     if let Some(ref n) = notes {
         println!("    Notes:  {}", n);
@@ -285,22 +288,23 @@ fn interactive_list() -> Result<()> {
 
     for (i, inv) in investments.iter().enumerate() {
         let short_id = &inv.id[..8.min(inv.id.len())];
+        let cur = load_currency_symbol();
         let value_str = match inv.current_value {
             Some(cv) => {
                 let roi = cv - inv.amount;
                 let sign = if roi >= 0.0 { "+" } else { "" };
                 let pct = roi / inv.amount * 100.0;
-                format!("${:.2}  ({}{:.1}%)", cv, sign, pct)
+                format!("{}  ({}{:.1}%)", fmt_amount(&cur, cv), sign, pct)
             }
             None => "—".to_string(),
         };
         println!(
-            "  {:>2}.  [{}…]  {}  |  {}  |  invested ${:.2}  |  current {}",
+            "  {:>2}.  [{}…]  {}  |  {}  |  invested {}  |  current {}",
             i + 1,
             short_id,
             inv.name,
             inv.investment_type,
-            inv.amount,
+            fmt_amount(&cur, inv.amount),
             value_str,
         );
     }
@@ -325,13 +329,17 @@ fn pick_investment(theme: &ColorfulTheme, prompt: &str) -> Result<Option<String>
         .iter()
         .map(|inv| {
             let short_id = &inv.id[..8.min(inv.id.len())];
+            let cur = load_currency_symbol();
             let value_str = inv
                 .current_value
-                .map(|cv| format!("  current ${:.2}", cv))
+                .map(|cv| format!("  current {}", fmt_amount(&cur, cv)))
                 .unwrap_or_default();
             format!(
-                "[{}…]  {}  (invested ${:.2}{})",
-                short_id, inv.name, inv.amount, value_str
+                "[{}…]  {}  (invested {}{})",
+                short_id,
+                inv.name,
+                fmt_amount(&cur, inv.amount),
+                value_str
             )
         })
         .collect();
@@ -374,8 +382,12 @@ fn interactive_update(theme: &ColorfulTheme) -> Result<()> {
     println!();
 
     // Amount
+    let cur = load_currency_symbol();
     let amount_str: String = Input::with_theme(theme)
-        .with_prompt(format!("New amount invested (current: ${:.2})", inv.amount))
+        .with_prompt(format!(
+            "New amount invested (current: {})",
+            fmt_amount(&cur, inv.amount)
+        ))
         .allow_empty(true)
         .interact_text()?;
     if !amount_str.trim().is_empty() {
@@ -390,7 +402,7 @@ fn interactive_update(theme: &ColorfulTheme) -> Result<()> {
         .with_prompt(format!(
             "New current value (current: {})",
             inv.current_value
-                .map(|v| format!("${:.2}", v))
+                .map(|v| fmt_amount(&cur, v))
                 .unwrap_or_else(|| "—".to_string())
         ))
         .allow_empty(true)
@@ -487,8 +499,10 @@ fn interactive_add_price(theme: &ColorfulTheme) -> Result<()> {
         Some(inv) => {
             pb.finish_and_clear();
             println!(
-                "  ✓ Recorded price ${:.2} for {} on {}",
-                price, inv.name, date
+                "  ✓ Recorded price {} for {} on {}",
+                fmt_amount(&load_currency_symbol(), price),
+                inv.name,
+                date
             );
             println!("    Price history: {} entries", inv.price_history.len());
             if let Some(twr) = inv.time_weighted_return() {
@@ -556,11 +570,17 @@ fn interactive_add_dividend(theme: &ColorfulTheme) -> Result<()> {
     })? {
         Some(inv) => {
             pb.finish_and_clear();
+            let cur = load_currency_symbol();
             println!(
-                "  ✓ Recorded dividend ${:.2} for {} on {}",
-                amount, inv.name, date
+                "  ✓ Recorded dividend {} for {} on {}",
+                fmt_amount(&cur, amount),
+                inv.name,
+                date
             );
-            println!("    Total dividends: ${:.2}", inv.total_dividends());
+            println!(
+                "    Total dividends: {}",
+                fmt_amount(&cur, inv.total_dividends())
+            );
         }
         None => {
             pb.finish_and_clear();
@@ -595,8 +615,10 @@ fn interactive_delete(theme: &ColorfulTheme) -> Result<()> {
     println!();
     println!("  ⚠  You are about to permanently delete:");
     println!(
-        "     {} — {} — invested ${:.2}",
-        inv.name, inv.investment_type, inv.amount
+        "     {} — {} — invested {}",
+        inv.name,
+        inv.investment_type,
+        fmt_amount(&load_currency_symbol(), inv.amount)
     );
     println!();
 

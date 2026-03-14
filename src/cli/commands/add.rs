@@ -1,6 +1,6 @@
 use crate::core::{Investment, InvestmentType, Storage};
 use crate::error::Result;
-use crate::utils::display::spinner;
+use crate::utils::display::{fmt_amount, load_currency_symbol, spinner};
 
 pub fn run(
     investment_type: String,
@@ -32,9 +32,10 @@ pub fn run(
     let saved = storage.add_investment(investment)?;
     pb.finish_and_clear();
 
+    let cur = load_currency_symbol();
     println!("✓ Added investment: {} ({})", saved.name, saved.id);
     println!("  Type: {}", saved.investment_type);
-    println!("  Amount: ${:.2}", saved.amount);
+    println!("  Amount: {}", fmt_amount(&cur, saved.amount));
     println!("  Date: {}", saved.date);
     if let Some(sym) = &saved.symbol {
         println!("  Symbol: {}", sym);

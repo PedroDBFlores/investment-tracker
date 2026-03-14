@@ -1,9 +1,11 @@
 use crate::core::{PortfolioAnalytics, Storage};
 use crate::error::Result;
+use crate::utils::display::{fmt_amount, load_currency_symbol};
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 
 pub fn run() -> Result<()> {
+    let sym = load_currency_symbol();
     let storage = Storage::open();
     let analytics = PortfolioAnalytics::new(storage);
     let summary = analytics.get_summary()?;
@@ -29,15 +31,15 @@ pub fn run() -> Result<()> {
     ]);
     table.add_row(vec![
         Cell::new("Total Invested").fg(Color::Cyan),
-        Cell::new(format!("${:.2}", summary.total_invested)).fg(Color::Yellow),
+        Cell::new(fmt_amount(&sym, summary.total_invested)).fg(Color::Yellow),
     ]);
     table.add_row(vec![
         Cell::new("Current Value").fg(Color::Cyan),
-        Cell::new(format!("${:.2}", summary.total_current_value)).fg(Color::Yellow),
+        Cell::new(fmt_amount(&sym, summary.total_current_value)).fg(Color::Yellow),
     ]);
     table.add_row(vec![
         Cell::new("Total Dividends").fg(Color::Cyan),
-        Cell::new(format!("${:.2}", summary.total_dividends)).fg(Color::Yellow),
+        Cell::new(fmt_amount(&sym, summary.total_dividends)).fg(Color::Yellow),
     ]);
 
     let roi_color = if summary.total_roi >= 0.0 {
@@ -45,11 +47,15 @@ pub fn run() -> Result<()> {
     } else {
         Color::Red
     };
+    let roi_sign = if summary.total_roi >= 0.0 { "+" } else { "" };
     table.add_row(vec![
         Cell::new("Total ROI").fg(Color::Cyan),
         Cell::new(format!(
-            "${:.2} ({:.2}%)",
-            summary.total_roi, summary.total_roi_percentage
+            "{}{} ({}{:.2}%)",
+            roi_sign,
+            fmt_amount(&sym, summary.total_roi),
+            roi_sign,
+            summary.total_roi_percentage
         ))
         .fg(roi_color)
         .add_attribute(Attribute::Bold),
@@ -94,7 +100,7 @@ pub fn run() -> Result<()> {
         alloc_table.add_row(vec![
             Cell::new(type_name).fg(Color::Green),
             Cell::new(count.to_string()).fg(Color::White),
-            Cell::new(format!("${:.2}", value)).fg(Color::Yellow),
+            Cell::new(fmt_amount(&sym, *value)).fg(Color::Yellow),
             Cell::new(format!("{:.1}%", percentage)).fg(pct_color),
         ]);
     }

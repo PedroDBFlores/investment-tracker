@@ -1,5 +1,6 @@
 use crate::core::Storage;
 use crate::error::Result;
+use crate::utils::display::{fmt_amount, fmt_return, load_currency_symbol};
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 
@@ -11,6 +12,8 @@ pub fn run() -> Result<()> {
         println!("No investments found.");
         return Ok(());
     }
+
+    let sym = load_currency_symbol();
 
     let mut table = Table::new();
     table
@@ -49,15 +52,14 @@ pub fn run() -> Result<()> {
         };
 
         let current_value_cell = match inv.current_value {
-            Some(cv) => Cell::new(format!("${:.2}", cv)).fg(Color::Yellow),
+            Some(cv) => Cell::new(fmt_amount(&sym, cv)).fg(Color::Yellow),
             None => Cell::new("—").fg(Color::DarkGrey),
         };
 
         let return_cell = match (inv.return_on_investment(), inv.return_percentage()) {
             (Some(roi), Some(pct)) => {
                 let color = if roi >= 0.0 { Color::Green } else { Color::Red };
-                let sign = if roi >= 0.0 { "+" } else { "" };
-                Cell::new(format!("{}{:.2} ({}{:.2}%)", sign, roi, sign, pct)).fg(color)
+                Cell::new(fmt_return(&sym, roi, pct)).fg(color)
             }
             _ => Cell::new("—").fg(Color::DarkGrey),
         };
@@ -66,7 +68,7 @@ pub fn run() -> Result<()> {
             Cell::new(short_id).fg(Color::DarkGrey),
             Cell::new(&inv.name).fg(Color::White),
             Cell::new(inv.investment_type.to_string()).fg(Color::White),
-            Cell::new(format!("${:.2}", inv.amount)).fg(Color::White),
+            Cell::new(fmt_amount(&sym, inv.amount)).fg(Color::White),
             current_value_cell,
             return_cell,
             Cell::new(&inv.date).fg(Color::White),
