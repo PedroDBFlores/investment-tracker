@@ -1,8 +1,22 @@
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 // Use the centralized error module
 pub use crate::error::{InvestmentError, Result};
+
+/// Validates that `date` is a real calendar date in YYYY-MM-DD format.
+/// Returns `Ok(())` on success, or an `InvalidDate` error with a descriptive
+/// message on failure.
+pub fn validate_date(date: &str) -> Result<()> {
+    NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| {
+        InvestmentError::InvalidDate(format!(
+            "'{}' is not a valid date — expected YYYY-MM-DD (e.g. 2024-01-15)",
+            date
+        ))
+    })?;
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DividendEntry {
@@ -101,14 +115,7 @@ impl Investment {
             .into());
         }
 
-        // Basic date validation (YYYY-MM-DD format)
-        if date.len() != 10 || date.chars().nth(4) != Some('-') || date.chars().nth(7) != Some('-')
-        {
-            return Err(InvestmentError::InvalidDate(
-                "Date must be in YYYY-MM-DD format".to_string(),
-            )
-            .into());
-        }
+        validate_date(&date)?;
 
         let now = crate::utils::display::now_timestamp();
 
@@ -175,14 +182,7 @@ impl Investment {
             );
         }
 
-        // Basic date validation (YYYY-MM-DD format)
-        if date.len() != 10 || date.chars().nth(4) != Some('-') || date.chars().nth(7) != Some('-')
-        {
-            return Err(InvestmentError::InvalidDate(
-                "Date must be in YYYY-MM-DD format".to_string(),
-            )
-            .into());
-        }
+        validate_date(&date)?;
 
         self.price_history.push(PriceEntry { date, price, notes });
         self.price_history.sort_by(|a, b| a.date.cmp(&b.date));
@@ -205,14 +205,7 @@ impl Investment {
             .into());
         }
 
-        // Basic date validation (YYYY-MM-DD format)
-        if date.len() != 10 || date.chars().nth(4) != Some('-') || date.chars().nth(7) != Some('-')
-        {
-            return Err(InvestmentError::InvalidDate(
-                "Date must be in YYYY-MM-DD format".to_string(),
-            )
-            .into());
-        }
+        validate_date(&date)?;
 
         self.dividends.push(DividendEntry {
             date,
@@ -430,6 +423,31 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_date_valid() {
+        assert!(validate_date("2024-01-15").is_ok());
+        assert!(validate_date("2000-02-29").is_ok()); // 2000 is a leap year
+        assert!(validate_date("1999-12-31").is_ok());
+    }
+
+    #[test]
+    fn test_validate_date_invalid_format() {
+        assert!(validate_date("15-01-2024").is_err());
+        assert!(validate_date("2024/01/15").is_err());
+        assert!(validate_date("20240115").is_err());
+        assert!(validate_date("not-a-date").is_err());
+        assert!(validate_date("").is_err());
+    }
+
+    #[test]
+    fn test_validate_date_impossible_dates() {
+        assert!(validate_date("2024-13-01").is_err()); // month 13
+        assert!(validate_date("2024-00-01").is_err()); // month 0
+        assert!(validate_date("2024-01-32").is_err()); // day 32
+        assert!(validate_date("2023-02-29").is_err()); // 2023 is not a leap year
+        assert!(validate_date("9999-99-99").is_err()); // previously passed the old check
+    }
+
+    #[test]
     fn test_invalid_date_format() {
         let result = Investment::new(
             "test-id".to_string(),
@@ -446,8 +464,8 @@ mod tests {
 
         assert!(result.is_err());
         if let Err(e) = result {
-            if let Some(InvestmentError::InvalidDate(msg)) = e.downcast_ref() {
-                assert_eq!(msg, "Date must be in YYYY-MM-DD format");
+            if let Some(InvestmentError::InvalidDate(_)) = e.downcast_ref() {
+                // error message is validated by test_validate_date_invalid_format
             } else {
                 panic!("Expected InvalidDate error");
             }

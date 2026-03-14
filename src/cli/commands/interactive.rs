@@ -1,3 +1,4 @@
+use crate::core::models::validate_date;
 use crate::core::{Investment, InvestmentType, Storage};
 use crate::error::Result;
 use crate::utils::display::{fmt_amount, load_currency_symbol, spinner};
@@ -13,6 +14,12 @@ enum MenuAction {
     RecordPrice,
     RecordDividend,
     DeleteInvestment,
+    ViewPortfolio,
+    Performance,
+    Analytics,
+    Export,
+    Import,
+    Config,
     Quit,
 }
 
@@ -25,6 +32,12 @@ impl MenuAction {
             MenuAction::RecordPrice => "💹  Record a price entry",
             MenuAction::RecordDividend => "💰  Record a dividend payment",
             MenuAction::DeleteInvestment => "🗑️   Delete an investment",
+            MenuAction::ViewPortfolio => "📊  Portfolio summary",
+            MenuAction::Performance => "📈  Performance report",
+            MenuAction::Analytics => "🔬  Analytics",
+            MenuAction::Export => "📤  Export portfolio",
+            MenuAction::Import => "📥  Import portfolio",
+            MenuAction::Config => "⚙️   Configuration",
             MenuAction::Quit => "🚪  Quit",
         }
     }
@@ -37,6 +50,12 @@ impl MenuAction {
             MenuAction::RecordPrice,
             MenuAction::RecordDividend,
             MenuAction::DeleteInvestment,
+            MenuAction::ViewPortfolio,
+            MenuAction::Performance,
+            MenuAction::Analytics,
+            MenuAction::Export,
+            MenuAction::Import,
+            MenuAction::Config,
             MenuAction::Quit,
         ]
     }
@@ -81,6 +100,12 @@ pub fn run() -> Result<()> {
             MenuAction::RecordPrice => interactive_add_price(&theme)?,
             MenuAction::RecordDividend => interactive_add_dividend(&theme)?,
             MenuAction::DeleteInvestment => interactive_delete(&theme)?,
+            MenuAction::ViewPortfolio => crate::cli::commands::portfolio::run()?,
+            MenuAction::Performance => interactive_performance(&theme)?,
+            MenuAction::Analytics => crate::cli::commands::analytics::run()?,
+            MenuAction::Export => interactive_export(&theme)?,
+            MenuAction::Import => interactive_import(&theme)?,
+            MenuAction::Config => interactive_config(&theme)?,
             MenuAction::Quit => {
                 println!("  Goodbye! 👋");
                 println!();
@@ -217,10 +242,10 @@ fn interactive_add(theme: &ColorfulTheme) -> Result<()> {
             .default(today.clone())
             .interact_text()?;
         let d = raw.trim().to_string();
-        if d.len() == 10 && d.chars().nth(4) == Some('-') && d.chars().nth(7) == Some('-') {
-            break d;
+        match validate_date(&d) {
+            Ok(_) => break d,
+            Err(e) => println!("  ⚠  {}", e),
         }
-        println!("  ⚠  Date must be in YYYY-MM-DD format.");
     };
 
     // Notes (optional)
@@ -760,11 +785,20 @@ fn interactive_update(theme: &ColorfulTheme) -> Result<()> {
         .interact_text()?;
     if !date_str.trim().is_empty() {
         let d = date_str.trim().to_string();
-        if d.len() == 10 && d.chars().nth(4) == Some('-') && d.chars().nth(7) == Some('-') {
-            inv.date = d;
-        } else {
-            println!("  ⚠  Invalid date format — skipped.");
+        match validate_date(&d) {
+            Ok(_) => inv.date = d,
+            Err(e) => println!("  ⚠  {} — skipped.", e),
         }
+    }
+
+    // Notes
+    let current_notes = inv.notes.clone().unwrap_or_else(|| "—".to_string());
+    let notes_str: String = Input::with_theme(theme)
+        .with_prompt(format!("Notes (current: {})", current_notes))
+        .allow_empty(true)
+        .interact_text()?;
+    if !notes_str.trim().is_empty() {
+        inv.notes = Some(notes_str.trim().to_string());
     }
 
     println!();
@@ -814,10 +848,10 @@ fn interactive_add_price(theme: &ColorfulTheme) -> Result<()> {
             .default(today.clone())
             .interact_text()?;
         let d = raw.trim().to_string();
-        if d.len() == 10 && d.chars().nth(4) == Some('-') && d.chars().nth(7) == Some('-') {
-            break d;
+        match validate_date(&d) {
+            Ok(_) => break d,
+            Err(e) => println!("  ⚠  {}", e),
         }
-        println!("  ⚠  Date must be in YYYY-MM-DD format.");
     };
 
     let notes_str: String = Input::with_theme(theme)
@@ -886,10 +920,10 @@ fn interactive_add_dividend(theme: &ColorfulTheme) -> Result<()> {
             .default(today.clone())
             .interact_text()?;
         let d = raw.trim().to_string();
-        if d.len() == 10 && d.chars().nth(4) == Some('-') && d.chars().nth(7) == Some('-') {
-            break d;
+        match validate_date(&d) {
+            Ok(_) => break d,
+            Err(e) => println!("  ⚠  {}", e),
         }
-        println!("  ⚠  Date must be in YYYY-MM-DD format.");
     };
 
     let notes_str: String = Input::with_theme(theme)
@@ -976,4 +1010,147 @@ fn interactive_delete(theme: &ColorfulTheme) -> Result<()> {
     println!("  ✓ Deleted: {} ({})", inv.name, inv.id);
 
     Ok(())
+}
+
+// ── Performance report ────────────────────────────────────────────────────────
+
+fn interactive_performance(theme: &ColorfulTheme) -> Result<()> {
+    println!("  📈  Performance Report");
+    println!("  {}", "─".repeat(30));
+
+    let range_options = vec!["all", "1m", "3m", "6m", "1y"];
+    let range_idx = Select::with_theme(theme)
+        .with_prompt("Time range")
+        .items(&range_options)
+        .default(0)
+        .interact()?;
+    let range = range_options[range_idx].to_string();
+
+    let target_options = vec!["All investments", "A specific investment"];
+    let target_idx = Select::with_theme(theme)
+        .with_prompt("Show performance for")
+        .items(&target_options)
+        .default(0)
+        .interact()?;
+
+    let id = if target_idx == 1 {
+        pick_investment(theme, "Select investment")?
+    } else {
+        None
+    };
+
+    println!();
+    crate::cli::commands::performance::run(id, range)
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+
+fn interactive_export(theme: &ColorfulTheme) -> Result<()> {
+    println!("  📤  Export Portfolio");
+    println!("  {}", "─".repeat(30));
+
+    let format_options = vec!["csv", "json"];
+    let format_idx = Select::with_theme(theme)
+        .with_prompt("Export format")
+        .items(&format_options)
+        .default(0)
+        .interact()?;
+    let format = format_options[format_idx].to_string();
+
+    let default_name = format!(
+        "portfolio_{}.{}",
+        chrono::Local::now().format("%Y%m%d"),
+        format
+    );
+    let path: String = Input::with_theme(theme)
+        .with_prompt("Output file path")
+        .default(default_name)
+        .interact_text()?;
+
+    println!();
+    crate::cli::commands::export::run(path, format)
+}
+
+// ── Import ────────────────────────────────────────────────────────────────────
+
+fn interactive_import(theme: &ColorfulTheme) -> Result<()> {
+    println!("  📥  Import Portfolio");
+    println!("  {}", "─".repeat(30));
+
+    let path: String = Input::with_theme(theme)
+        .with_prompt("Input file path (CSV or JSON)")
+        .interact_text()?;
+
+    println!();
+    if !Confirm::with_theme(theme)
+        .with_prompt(format!("Import investments from '{}'?", path))
+        .default(true)
+        .interact()?
+    {
+        println!("  Cancelled.");
+        return Ok(());
+    }
+
+    println!();
+    crate::cli::commands::import::run(path)
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+fn interactive_config(theme: &ColorfulTheme) -> Result<()> {
+    println!("  ⚙️   Configuration");
+    println!("  {}", "─".repeat(30));
+
+    use super::ConfigCommands;
+
+    let action_options = vec![
+        "Show current settings",
+        "Change a setting",
+        "Reset to defaults",
+    ];
+    let action_idx = Select::with_theme(theme)
+        .with_prompt("What would you like to do?")
+        .items(&action_options)
+        .default(0)
+        .interact()?;
+
+    println!();
+
+    match action_idx {
+        0 => crate::cli::commands::config::run(ConfigCommands::Show),
+        1 => {
+            let key_options = vec![
+                "currency",
+                "data-directory",
+                "date-format",
+                "show-dividends",
+                "color-output",
+            ];
+            let key_idx = Select::with_theme(theme)
+                .with_prompt("Which setting?")
+                .items(&key_options)
+                .default(0)
+                .interact()?;
+            let key = key_options[key_idx].to_string();
+
+            let value: String = Input::with_theme(theme)
+                .with_prompt(format!("New value for '{}'", key))
+                .interact_text()?;
+
+            println!();
+            crate::cli::commands::config::run(ConfigCommands::Set { key, value })
+        }
+        _ => {
+            if !Confirm::with_theme(theme)
+                .with_prompt("Reset all configuration to defaults?")
+                .default(false)
+                .interact()?
+            {
+                println!("  Cancelled.");
+                return Ok(());
+            }
+            println!();
+            crate::cli::commands::config::run(ConfigCommands::Reset)
+        }
+    }
 }

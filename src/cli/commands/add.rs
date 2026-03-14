@@ -8,6 +8,7 @@ pub fn run(
     amount: f64,
     date: Option<String>,
     symbol: Option<String>,
+    notes: Option<String>,
     dividend_yield: Option<f64>,
     dividend_frequency: Option<String>,
 ) -> Result<()> {
@@ -22,7 +23,7 @@ pub fn run(
         amount,
         date,
         Some(amount),
-        None,
+        notes,
         dividend_yield,
         dividend_frequency,
     )?;
@@ -39,6 +40,9 @@ pub fn run(
     println!("  Date: {}", saved.date);
     if let Some(sym) = &saved.symbol {
         println!("  Symbol: {}", sym);
+    }
+    if let Some(n) = &saved.notes {
+        println!("  Notes: {}", n);
     }
     Ok(())
 }

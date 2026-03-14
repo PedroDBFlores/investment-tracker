@@ -121,7 +121,7 @@ fn test_delete_investment() -> Result<(), Box<dyn std::error::Error>> {
         .stdout(predicate::str::contains("Delete Test"));
 
     let delete_output = Command::cargo_bin("investment_tracker")?
-        .args(["delete", &id])
+        .args(["delete", &id, "--yes"])
         .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
         .output()?;
 
@@ -184,9 +184,7 @@ fn test_invalid_date() -> Result<(), Box<dyn std::error::Error>> {
     .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
     .assert()
     .failure()
-    .stderr(predicate::str::contains(
-        "Date must be in YYYY-MM-DD format",
-    ));
+    .stderr(predicate::str::contains("is not a valid date"));
 
     Ok(())
 }
@@ -562,6 +560,261 @@ fn test_multiple_new_investments_all_have_current_value() -> Result<(), Box<dyn 
             inv["name"], current_value, amount
         );
     }
+
+    Ok(())
+}
+
+// ── Item 3: strict date validation ───────────────────────────────────────────
+
+/// Dates that look structurally plausible but are calendar-impossible (e.g.
+/// month 13, day 32, Feb 29 in a non-leap year) must now be rejected.
+#[test]
+fn test_add_rejects_impossible_date_month_13() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "Bad Date Corp", "1000.00", "2024-13-01"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .failure();
+
+    Ok(())
+}
+
+#[test]
+fn test_add_rejects_impossible_date_day_32() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "Bad Date Corp", "1000.00", "2024-01-32"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .failure();
+
+    Ok(())
+}
+
+#[test]
+fn test_add_rejects_feb29_on_non_leap_year() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "Bad Date Corp", "1000.00", "2023-02-29"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .failure();
+
+    Ok(())
+}
+
+/// Feb 29 on an actual leap year must succeed.
+#[test]
+fn test_add_accepts_feb29_on_leap_year() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "Leap Year Corp", "1000.00", "2024-02-29"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Leap Year Corp"));
+
+    Ok(())
+}
+
+/// The previously-passing 9999-99-99 must now be rejected.
+#[test]
+fn test_add_rejects_9999_99_99() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "Bad Date Corp", "1000.00", "9999-99-99"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .failure();
+
+    Ok(())
+}
+
+// ── Item 5: notes on add and update ──────────────────────────────────────────
+
+/// Notes passed via --notes on `add` should be persisted and shown by `view`.
+#[test]
+fn test_add_with_notes() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    let add_output = Command::cargo_bin("investment_tracker")?
+        .args([
+            "add",
+            "stock",
+            "Noted Corp",
+            "1000.00",
+            "2024-01-15",
+            "--notes",
+            "My first note",
+        ])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+
+    assert!(add_output.status.success());
+    let stdout = String::from_utf8_lossy(&add_output.stdout);
+    assert!(
+        stdout.contains("My first note"),
+        "add confirmation should echo the note; got:\n{}",
+        stdout
+    );
+
+    // Verify notes are persisted in JSON
+    let raw = std::fs::read_to_string(&data_file)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    assert_eq!(parsed[0]["notes"], "My first note");
+
+    Ok(())
+}
+
+/// Notes passed via --notes on `update` should overwrite the existing notes.
+#[test]
+fn test_update_notes() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    let add_output = Command::cargo_bin("investment_tracker")?
+        .args([
+            "add",
+            "stock",
+            "Notes Update Corp",
+            "1000.00",
+            "2024-01-15",
+            "--notes",
+            "Original note",
+        ])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+
+    assert!(add_output.status.success());
+    let id = extract_id_from_output(&String::from_utf8_lossy(&add_output.stdout));
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["update", &id, "--notes", "Updated note"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Updated note"));
+
+    // Verify the updated note is persisted in JSON
+    let raw = std::fs::read_to_string(&data_file)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    assert_eq!(parsed[0]["notes"], "Updated note");
+
+    Ok(())
+}
+
+/// Notes added on `add` must appear in the `view` output.
+#[test]
+fn test_view_shows_notes() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    let add_output = Command::cargo_bin("investment_tracker")?
+        .args([
+            "add",
+            "etf",
+            "View Notes ETF",
+            "2000.00",
+            "2024-03-01",
+            "--notes",
+            "Check this note",
+        ])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+
+    assert!(add_output.status.success());
+    let id = extract_id_from_output(&String::from_utf8_lossy(&add_output.stdout));
+
+    Command::cargo_bin("investment_tracker")?
+        .args(["view", &id])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Check this note"));
+
+    Ok(())
+}
+
+// ── Item 8: delete requires confirmation ─────────────────────────────────────
+
+/// Without --yes and outside a TTY, the prompt falls back to "not confirmed"
+/// and the investment must remain intact.
+#[test]
+fn test_delete_cancelled_by_user() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    let add_output = Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "Delete Me Not", "1000.00", "2024-01-15"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+
+    assert!(add_output.status.success());
+    let id = extract_id_from_output(&String::from_utf8_lossy(&add_output.stdout));
+
+    // No --yes flag and no TTY → interact_opt() returns None → treated as cancelled
+    Command::cargo_bin("investment_tracker")?
+        .args(["delete", &id])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Cancelled"));
+
+    // Investment must still be present
+    Command::cargo_bin("investment_tracker")?
+        .args(["list"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Delete Me Not"));
+
+    Ok(())
+}
+
+/// Passing --yes must skip the confirmation prompt and delete immediately.
+#[test]
+fn test_delete_confirmed_by_user() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = tempdir()?;
+    let data_file = temp_dir.path().join("test_investments.json");
+
+    let add_output = Command::cargo_bin("investment_tracker")?
+        .args(["add", "stock", "Delete Me Yes", "1000.00", "2024-01-15"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .output()?;
+
+    assert!(add_output.status.success());
+    let id = extract_id_from_output(&String::from_utf8_lossy(&add_output.stdout));
+
+    // --yes bypasses the confirmation prompt entirely
+    Command::cargo_bin("investment_tracker")?
+        .args(["delete", &id, "--yes"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Deleted investment:"));
+
+    // Investment must be gone
+    Command::cargo_bin("investment_tracker")?
+        .args(["list"])
+        .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("No investments found")
+                .or(predicate::str::contains("Delete Me Yes").not()),
+        );
 
     Ok(())
 }

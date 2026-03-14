@@ -35,6 +35,7 @@ impl Cli {
                 amount,
                 date,
                 symbol,
+                notes,
                 dividend_yield,
                 dividend_frequency,
             } => add::run(
@@ -43,6 +44,7 @@ impl Cli {
                 amount,
                 date,
                 symbol,
+                notes,
                 dividend_yield,
                 dividend_frequency,
             ),
@@ -53,8 +55,9 @@ impl Cli {
                 amount,
                 current_value,
                 date,
-            } => update::run(id, amount, current_value, date),
-            Commands::Delete { id } => delete::run(id),
+                notes,
+            } => update::run(id, amount, current_value, date, notes),
+            Commands::Delete { id, yes } => delete::run(id, yes),
             Commands::Portfolio { detailed: _ } => portfolio::run(),
             Commands::Export { path, format } => export::run(path, format),
             Commands::Import { path } => import::run(path),
@@ -94,6 +97,9 @@ pub enum Commands {
         /// Ticker symbol (e.g. AAPL, BTC)
         #[arg(short = 's', long)]
         symbol: Option<String>,
+        /// Optional notes for this investment
+        #[arg(short = 'n', long)]
+        notes: Option<String>,
         /// Dividend yield (e.g., 3.5 for 3.5%)
         #[arg(short = 'y', long)]
         dividend_yield: Option<f64>,
@@ -118,11 +124,17 @@ pub enum Commands {
         current_value: Option<f64>,
         /// New date of investment (YYYY-MM-DD)
         date: Option<String>,
+        /// Update notes for this investment
+        #[arg(short = 'n', long)]
+        notes: Option<String>,
     },
     /// Delete an investment from your portfolio
     Delete {
         /// ID of the investment to delete
         id: String,
+        /// Skip the confirmation prompt and delete immediately
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
     /// Show portfolio summary and analytics
     Portfolio {

@@ -7,6 +7,7 @@ pub fn run(
     amount: Option<f64>,
     current_value: Option<f64>,
     date: Option<String>,
+    notes: Option<String>,
 ) -> Result<()> {
     let storage = Storage::open();
     match storage.get_investment(&id)? {
@@ -24,11 +25,18 @@ pub fn run(
                 inv.date = d;
                 updated = true;
             }
+            if let Some(n) = notes {
+                inv.notes = Some(n);
+                updated = true;
+            }
             if updated {
                 let pb = spinner("Saving changes…");
                 storage.update_investment(&inv)?;
                 pb.finish_and_clear();
                 println!("✓ Updated investment: {}", inv.id);
+                if let Some(ref n) = inv.notes {
+                    println!("  Notes: {}", n);
+                }
             } else {
                 println!("No changes made to investment: {}", inv.id);
             }
