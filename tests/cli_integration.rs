@@ -17,15 +17,26 @@ fn test_add_and_list_investments() -> Result<(), Box<dyn std::error::Error>> {
         .stdout(predicate::str::contains("Added investment: Test Company"))
         .stdout(predicate::str::contains("Type: Stock"));
 
-    let mut list_cmd = Command::cargo_bin("investment_tracker")?;
-    list_cmd
+    let list_output = Command::cargo_bin("investment_tracker")?
         .args(["list"])
         .env("INVESTMENT_TRACKER_DATA", data_file.to_str().unwrap())
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Test Company"))
-        .stdout(predicate::str::contains("1000.00"))
-        .stdout(predicate::str::contains("2024-01-15"));
+        .output()?;
+    assert!(list_output.status.success());
+    let stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(stdout.contains("Test Company"));
+    assert!(stdout.contains("1000.00"));
+    assert!(stdout.contains("2024-01-15"));
+
+    // Verify the Created column header is present and the created_at date for the saved
+    // investment appears in the list output. Read the saved data file to obtain the
+    // deterministic created_at value.
+    let data = fs::read_to_string(&data_file)?;
+    let json: serde_json::Value = serde_json::from_str(&data)?;
+    let created_at = json[0]["created_at"].as_str().unwrap_or("");
+    let created_date = created_at.split_whitespace().next().unwrap_or("");
+
+    assert!(stdout.contains("Created"));
+    assert!(stdout.contains(created_date));
 
     Ok(())
 }

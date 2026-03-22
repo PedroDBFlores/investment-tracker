@@ -88,11 +88,15 @@ pub fn run() -> Result<()> {
         // immediately by the next Select, auto-selecting item 0.
         drain_tty_input();
 
-        let selection = Select::with_theme(&theme)
+        let selection_opt = Select::with_theme(&theme)
             .with_prompt("What would you like to do?")
             .items(&labels)
             .default(0)
-            .interact()?;
+            .interact_opt()?;
+        let selection = match selection_opt {
+            Some(i) => i,
+            None => continue, // ESC pressed — return to main menu
+        };
 
         println!();
 
@@ -189,11 +193,15 @@ fn interactive_add(theme: &ColorfulTheme) -> Result<()> {
         "Crypto",
         "Other",
     ];
-    let type_idx = Select::with_theme(theme)
+    let type_idx_opt = Select::with_theme(theme)
         .with_prompt("Investment type")
         .items(&type_labels)
         .default(0)
-        .interact()?;
+        .interact_opt()?;
+    let type_idx = match type_idx_opt {
+        Some(i) => i,
+        None => return Ok(()), // ESC pressed — return to main menu
+    };
 
     let inv_type = match type_idx {
         0 => InvestmentType::Stock,
@@ -283,11 +291,15 @@ fn interactive_add(theme: &ColorfulTheme) -> Result<()> {
             "Annual",
             "Skip (no frequency)",
         ];
-        let freq_idx = Select::with_theme(theme)
+        let freq_idx_opt = Select::with_theme(theme)
             .with_prompt("Dividend frequency")
             .items(&freq_options)
             .default(1)
-            .interact()?;
+            .interact_opt()?;
+        let freq_idx = match freq_idx_opt {
+            Some(i) => i,
+            None => return Ok(()), // ESC pressed — return to main menu
+        };
         match freq_idx {
             0 => Some("Monthly".to_string()),
             1 => Some("Quarterly".to_string()),
@@ -737,11 +749,15 @@ fn pick_investment(theme: &ColorfulTheme, prompt: &str) -> Result<Option<String>
         })
         .collect();
 
-    let idx = Select::with_theme(theme)
+    let idx_opt = Select::with_theme(theme)
         .with_prompt(prompt)
         .items(&labels)
         .default(0)
-        .interact()?;
+        .interact_opt()?;
+    let idx = match idx_opt {
+        Some(i) => i,
+        None => return Ok(None), // ESC pressed — return to main menu
+    };
 
     Ok(Some(investments[idx].id.clone()))
 }

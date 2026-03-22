@@ -105,6 +105,8 @@ The recommended way to use Investment Tracker. A full-screen menu guides you thr
 investment_tracker interactive
 ```
 
+Press ESC at any time while in interactive mode to return to the main application menu.
+
 The menu offers:
 - ➕ Add a new investment
 - 📋 List investments (with total invested and total current value summary)

@@ -49,6 +49,9 @@ pub fn run() -> Result<()> {
             Cell::new("Trend")
                 .add_attribute(Attribute::Bold)
                 .fg(header_color),
+            Cell::new("Created")
+                .add_attribute(Attribute::Bold)
+                .fg(header_color),
             Cell::new("Date")
                 .add_attribute(Attribute::Bold)
                 .fg(header_color),
@@ -139,6 +142,16 @@ pub fn run() -> Result<()> {
             return_cell,
             units_cell,
             trend_cell,
+            // Created date is a full timestamp like "YYYY-MM-DD HH:MM:SS" — display only the date portion
+            {
+                let created_date = inv
+                    .created_at
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or(&inv.created_at)
+                    .to_string();
+                Cell::new(created_date).fg(Color::White)
+            },
             Cell::new(&inv.date).fg(Color::White),
         ]);
     }
