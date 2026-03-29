@@ -97,13 +97,6 @@ impl Config {
             other => other.to_string(),
         }
     }
-
-    /// Formats a monetary value with the configured currency symbol.
-    /// e.g. `fmt_amount(1234.5)` → `"€1234.50"` when currency is EUR.
-    #[allow(dead_code)]
-    pub fn fmt_amount(&self, value: f64) -> String {
-        format!("{}{:.2}", self.currency_symbol(), value)
-    }
 }
 
 #[cfg(test)]

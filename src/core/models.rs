@@ -18,41 +18,61 @@ pub fn validate_date(date: &str) -> Result<()> {
     Ok(())
 }
 
+/// A single dividend payment received from an investment.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DividendEntry {
-    pub date: String, // YYYY-MM-DD
-    pub amount: f64,  // total dividend amount received
+    /// Payment date in YYYY-MM-DD format.
+    pub date: String,
+    /// Total dividend amount received.
+    pub amount: f64,
     pub notes: Option<String>,
 }
 
+/// A snapshot of an investment's value at a point in time.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PriceEntry {
-    pub date: String, // YYYY-MM-DD
-    pub price: f64,   // value per unit / total portfolio value at that date
+    /// Date of the price snapshot in YYYY-MM-DD format.
+    pub date: String,
+    /// Total portfolio value (or per-unit price when `unit_price` is not set).
+    pub price: f64,
     pub notes: Option<String>,
+    /// Per-unit market price at this date. Optional; only set for unit-tracked investments.
     #[serde(default)]
-    pub unit_price: Option<f64>, // per-unit price at this point in time (optional)
+    pub unit_price: Option<f64>,
 }
 
 /// Records the sale of units/shares from an investment position.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SaleEntry {
-    pub date: String,             // YYYY-MM-DD
-    pub units_sold: f64,          // how many units/shares sold
-    pub sale_price_per_unit: f64, // price per unit at sale
-    pub total_proceeds: f64,      // units_sold * sale_price_per_unit
-    pub realized_gain: f64,       // total_proceeds - (units_sold * cost_basis_per_unit)
+    /// Date of the sale in YYYY-MM-DD format.
+    pub date: String,
+    /// Number of units/shares sold.
+    pub units_sold: f64,
+    /// Market price per unit at the time of sale.
+    pub sale_price_per_unit: f64,
+    /// `units_sold × sale_price_per_unit`.
+    pub total_proceeds: f64,
+    /// `total_proceeds − (units_sold × cost_basis_per_unit)`.
+    pub realized_gain: f64,
     pub notes: Option<String>,
 }
 
+/// The category of a financial instrument.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum InvestmentType {
+    /// Individual company stock / share.
     Stock,
+    /// Exchange-traded fund.
     ETF,
+    /// Actively managed mutual fund.
     MutualFund,
+    /// Fixed-term bank deposit or savings account.
     Deposit,
+    /// Government or corporate bond.
     Bond,
+    /// Cryptocurrency.
     Crypto,
+    /// Any instrument not covered by the variants above.
     Other(String),
 }
 
@@ -86,33 +106,53 @@ impl std::str::FromStr for InvestmentType {
     }
 }
 
+/// A single investment position in the portfolio.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Investment {
+    /// Unique identifier (UUID v4).
     pub id: String,
     pub investment_type: InvestmentType,
+    /// Human-readable name (e.g. "Apple Inc.").
     pub name: String,
+    /// Optional ticker or symbol (e.g. "AAPL").
     pub symbol: Option<String>,
+    /// Original invested amount (adjusted downward as units are sold).
     pub amount: f64,
+    /// Date of the initial purchase in YYYY-MM-DD format.
     pub date: String,
+    /// Most recent known market value of the position.
     pub current_value: Option<f64>,
     pub notes: Option<String>,
+    /// ISO 8601 timestamp of when this record was created.
     pub created_at: String,
+    /// ISO 8601 timestamp of the last modification.
     pub updated_at: String,
+    /// Annualised dividend yield (percentage, e.g. `3.5` for 3.5 %).
     #[serde(default)]
     pub dividend_yield: Option<f64>,
+    /// Dividend payment frequency (e.g. "quarterly", "annual").
     #[serde(default)]
     pub dividend_frequency: Option<String>,
+    /// Chronologically ordered price snapshots.
     #[serde(default)]
     pub price_history: Vec<PriceEntry>,
+    /// Recorded dividend payments.
     #[serde(default)]
     pub dividends: Vec<DividendEntry>,
+    /// Total units/shares held at acquisition (before any sales).
     #[serde(default)]
     pub units: Option<f64>,
+    /// Recorded partial or full sales of this position.
     #[serde(default)]
     pub sales: Vec<SaleEntry>,
 }
 
 impl Investment {
+    /// Create a new investment, validating `amount` (must be > 0) and `date`
+    /// (must be a real YYYY-MM-DD calendar date).
+    ///
+    /// `id` may be an empty string — the storage layer assigns a UUID before
+    /// persisting.
     pub fn new(
         id: String,
         investment_type: InvestmentType,
@@ -185,6 +225,7 @@ impl Investment {
         self.sales.iter().map(|s| s.realized_gain).sum()
     }
 
+    /// Update the invested amount. Returns an error if `new_amount` ≤ 0.
     pub fn update_amount(&mut self, new_amount: f64) -> Result<()> {
         if new_amount <= 0.0 {
             return Err(InvestmentError::InvalidAmount(
@@ -197,6 +238,7 @@ impl Investment {
         Ok(())
     }
 
+    /// Update the current market value. Returns an error if `new_value` < 0.
     pub fn update_current_value(&mut self, new_value: f64) -> Result<()> {
         if new_value < 0.0 {
             return Err(
@@ -208,10 +250,12 @@ impl Investment {
         Ok(())
     }
 
+    /// Absolute return: `current_value − amount`. Returns `None` if no current value is set.
     pub fn return_on_investment(&self) -> Option<f64> {
         self.current_value.map(|current| current - self.amount)
     }
 
+    /// Return as a percentage of the invested amount. Returns `None` if no current value is set.
     pub fn return_percentage(&self) -> Option<f64> {
         self.current_value
             .map(|current| (current - self.amount) / self.amount * 100.0)
@@ -379,29 +423,6 @@ impl Investment {
 mod tests {
     use super::*;
 
-    #[allow(dead_code)]
-    fn make_investment_with_symbol(
-        amount: f64,
-        current_value: Option<f64>,
-        symbol: Option<String>,
-    ) -> Investment {
-        Investment::new(
-            "test-id".to_string(),
-            InvestmentType::Stock,
-            "Test Company".to_string(),
-            symbol,
-            amount,
-            "2024-01-15".to_string(),
-            current_value,
-            None,
-            None,
-            None,
-            None,
-        )
-        .unwrap()
-    }
-
-    #[allow(dead_code)]
     fn make_investment(amount: f64, current_value: Option<f64>) -> Investment {
         Investment::new(
             "test-id".to_string(),
@@ -782,7 +803,6 @@ mod tests {
 
     // ── New tests for units / sales features ──────────────────────────────────
 
-    #[allow(dead_code)]
     fn make_investment_with_units(amount: f64, units: f64) -> Investment {
         Investment::new(
             "test-id".to_string(),

@@ -7,20 +7,31 @@ use uuid::Uuid;
 // Use our centralized error and result types
 pub use crate::error::Result;
 
+/// JSON-backed persistence layer for investment records.
+///
+/// All data is stored in a single JSON file (default:
+/// `~/.investment_tracker/investments.json`). The path can be overridden via
+/// the `INVESTMENT_TRACKER_DATA` environment variable or the app config file.
 #[derive(Debug)]
 pub struct Storage {
     data_file: PathBuf,
 }
 
 impl Storage {
+    /// Create a `Storage` instance pointing at `data_file`.
     pub fn new(data_file: PathBuf) -> Self {
         Storage { data_file }
     }
 
+    /// Create a `Storage` instance using the default data-file path.
     pub fn open() -> Self {
         Self::new(Self::get_data_path())
     }
 
+    /// Resolve the path to the data file, respecting (in order):
+    /// 1. `INVESTMENT_TRACKER_DATA` environment variable
+    /// 2. The `data_directory` setting in the app config file
+    /// 3. The default `~/.investment_tracker/investments.json`
     pub fn get_data_path() -> PathBuf {
         // Check for environment variable override (for testing)
         if let Ok(data_path) = std::env::var("INVESTMENT_TRACKER_DATA") {
@@ -41,6 +52,8 @@ impl Storage {
         data_file
     }
 
+    /// Load all investments from disk. Returns an empty `Vec` if the data file
+    /// does not exist yet.
     pub fn load_investments(&self) -> Result<Vec<Investment>> {
         if !self.data_file.exists() {
             return Ok(Vec::new());
@@ -53,6 +66,8 @@ impl Storage {
             .with_context(|| format!("Failed to parse JSON from: {}", self.data_file.display()))
     }
 
+    /// Serialise and atomically write all investments to disk, creating parent
+    /// directories as needed.
     pub fn save_investments(&self, investments: &[Investment]) -> Result<()> {
         let data = serde_json::to_string_pretty(investments)
             .context("Failed to serialize investments to JSON")?;
@@ -90,6 +105,8 @@ impl Storage {
         Ok(saved)
     }
 
+    /// Persist a single new investment, generating a UUID if `investment.id` is
+    /// empty. Returns the saved investment with its final ID.
     pub fn add_investment(&self, investment: Investment) -> Result<Investment> {
         let mut investments = self.load_investments()?;
 
@@ -141,12 +158,17 @@ impl Storage {
         }
     }
 
+    /// Look up a single investment by full UUID or prefix. Returns `Ok(None)` if
+    /// no match is found.
     pub fn get_investment(&self, id: &str) -> Result<Option<Investment>> {
         let investments = self.load_investments()?;
         let resolved = self.resolve_id(id, &investments)?;
         Ok(resolved.and_then(|full_id| investments.into_iter().find(|inv| inv.id == full_id)))
     }
 
+    /// Replace an existing investment record (matched by ID) with
+    /// `updated_investment`. Returns the previous record, or `Ok(None)` if not
+    /// found.
     pub fn update_investment(&self, updated_investment: &Investment) -> Result<Option<Investment>> {
         let mut investments = self.load_investments()?;
 
@@ -162,6 +184,8 @@ impl Storage {
         }
     }
 
+    /// Remove and return the investment with the given ID (or prefix). Returns
+    /// `Ok(None)` if not found.
     pub fn delete_investment(&self, id: &str) -> Result<Option<Investment>> {
         let mut investments = self.load_investments()?;
         let resolved = self.resolve_id(id, &investments)?;
@@ -179,6 +203,7 @@ impl Storage {
         }
     }
 
+    /// Return every investment currently on disk.
     pub fn get_all_investments(&self) -> Result<Vec<Investment>> {
         self.load_investments()
     }
