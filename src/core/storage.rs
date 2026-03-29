@@ -12,6 +12,9 @@ pub use crate::error::Result;
 /// Implementing this trait for a new backend (e.g. SQLite) is sufficient to
 /// make the entire command layer work with that backend without any changes to
 /// the command code.  The current implementation is [`Storage`] (JSON files).
+///
+/// The methods on this trait are intentionally kept for forward compatibility
+/// (future SQLite backend), hence the `dead_code` suppression.
 #[allow(dead_code)]
 pub trait StorageBackend {
     /// Load all investments. Returns an empty `Vec` when no data exists yet.

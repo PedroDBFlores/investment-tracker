@@ -54,7 +54,11 @@ impl Config {
         let config_path = config_dir.join("config.json");
         let config_json = serde_json::to_string_pretty(self)?;
 
-        std::fs::write(config_path, config_json)?;
+        // Write to a temp file in the same directory, then rename atomically so
+        // an interrupted write never leaves a half-written config.json.
+        let tmp_path = config_dir.join("config.json.tmp");
+        std::fs::write(&tmp_path, config_json)?;
+        std::fs::rename(&tmp_path, &config_path)?;
 
         Ok(())
     }

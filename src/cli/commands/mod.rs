@@ -51,7 +51,7 @@ impl Cli {
                 dividend_frequency,
                 units,
             ),
-            Commands::List => list::run(),
+            Commands::List { limit, offset } => list::run(limit, offset),
             Commands::View { id } => view::run(id),
             Commands::Update {
                 id,
@@ -123,7 +123,14 @@ pub enum Commands {
         units: Option<f64>,
     },
     /// List all investments in your portfolio
-    List,
+    List {
+        /// Maximum number of investments to show (shows all if omitted)
+        #[arg(short = 'n', long)]
+        limit: Option<usize>,
+        /// Number of investments to skip (for pagination)
+        #[arg(short, long, default_value_t = 0)]
+        offset: usize,
+    },
     /// View details of a specific investment
     View {
         /// ID of the investment to view

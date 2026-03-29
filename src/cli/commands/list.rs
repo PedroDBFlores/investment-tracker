@@ -6,14 +6,22 @@ use crate::utils::display::{
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 
-pub fn run() -> Result<()> {
+pub fn run(limit: Option<usize>, offset: usize) -> Result<()> {
     let storage = Storage::open();
     let investments = storage.get_all_investments()?;
+    let total = investments.len();
 
     if investments.is_empty() {
         println!("No investments found.");
         return Ok(());
     }
+
+    // Apply pagination
+    let page: Vec<_> = investments
+        .iter()
+        .skip(offset)
+        .take(limit.unwrap_or(usize::MAX))
+        .collect();
 
     let sym = load_currency_symbol();
     let colors = colors_enabled();
@@ -57,7 +65,7 @@ pub fn run() -> Result<()> {
                 .fg(header_color),
         ]);
 
-    for inv in &investments {
+    for inv in &page {
         // Shorten UUID to first 8 chars — copy-pasteable as a prefix ID
         let short_id = if inv.id.len() > 8 {
             inv.id[..8].to_string()
@@ -157,7 +165,19 @@ pub fn run() -> Result<()> {
     }
 
     println!("{table}");
-    println!("Total: {} investment(s)", investments.len());
+
+    let showing = page.len();
+    let end = offset + showing;
+    if offset > 0 || limit.is_some() {
+        println!(
+            "Showing {}-{} of {} investment(s)",
+            offset + 1,
+            end,
+            total
+        );
+    } else {
+        println!("Total: {} investment(s)", total);
+    }
 
     Ok(())
 }
