@@ -27,20 +27,20 @@ enum MenuAction {
 impl MenuAction {
     fn label(&self) -> &'static str {
         match self {
-            MenuAction::AddInvestment => "➕  Add a new investment",
-            MenuAction::ListInvestments => "📋  List investments",
-            MenuAction::UpdateInvestment => "✏️   Update an investment",
-            MenuAction::RecordPrice => "💹  Record a price entry",
-            MenuAction::RecordDividend => "💰  Record a dividend payment",
-            MenuAction::SellUnits => "💸  Sell units / record a sale",
-            MenuAction::DeleteInvestment => "🗑️   Delete an investment",
-            MenuAction::ViewPortfolio => "📊  Portfolio summary",
-            MenuAction::Performance => "📈  Performance report",
-            MenuAction::Analytics => "🔬  Analytics",
-            MenuAction::Export => "📤  Export portfolio",
-            MenuAction::Import => "📥  Import portfolio",
-            MenuAction::Config => "⚙️   Configuration",
-            MenuAction::Quit => "🚪  Quit",
+            MenuAction::AddInvestment => "➕ Add a new investment",
+            MenuAction::ListInvestments => "📋 List investments",
+            MenuAction::UpdateInvestment => "✏️ Update an investment",
+            MenuAction::RecordPrice => "💹 Record a price entry",
+            MenuAction::RecordDividend => "💰 Record a dividend payment",
+            MenuAction::SellUnits => "💸 Sell units / record a sale",
+            MenuAction::DeleteInvestment => "🗑️ Delete an investment",
+            MenuAction::ViewPortfolio => "📊 Portfolio summary",
+            MenuAction::Performance => "📈 Performance report",
+            MenuAction::Analytics => "🔬 Analytics",
+            MenuAction::Export => "📤 Export portfolio",
+            MenuAction::Import => "📥 Import portfolio",
+            MenuAction::Config => "⚙️ Configuration",
+            MenuAction::Quit => "🚪 Quit",
         }
     }
 
